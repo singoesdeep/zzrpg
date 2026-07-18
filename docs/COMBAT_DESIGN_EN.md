@@ -1,6 +1,6 @@
-# Combat System Design: Data-Driven Mechanics
+# Combat System Design: Data-Driven Mechanics (EN)
 
-The combat module orchestrates real-time combat calculations. By retrieving dynamic stats from PostgreSQL/Redis (precalculated by the Rust `zzstat` service), the combat system applies damage, critical hits, misses, blocks, and status effects.
+The combat module orchestrates real-time combat calculations. By retrieving dynamic stats from PostgreSQL/Redis (precalculated in-process via Go-Rust FFI using the `zzstat` engine), the combat system applies damage, critical hits, misses, blocks, and status effects.
 
 ---
 
@@ -88,7 +88,7 @@ Skills can inflict secondary status effects, defined entirely in the database `s
 If the status effect triggers:
 1. The Go backend inserts the active debuff into `active_buffs`.
 2. This invalidates the defender's stats.
-3. The defender's stats are recalculated by `zzstat` (e.g. speed reduced by 30%, or HP ticks lost every second).
+3. The defender's stats are recalculated in-process via the `zzstat` engine (e.g. speed reduced by 30%, or HP ticks lost every second).
 4. An update is broadcast to the map channel.
 
 ---

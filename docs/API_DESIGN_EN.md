@@ -1,6 +1,6 @@
-# API Design: zzrpg REST, WebSockets & gRPC Interfaces
+# API Design: zzrpg REST, WebSockets & FFI Interfaces (EN)
 
-This document defines the interface specifications between the Next.js Frontend, Go Backend, and the Rust zzstat service.
+This document defines the interface specifications between the Frontend Client, Go Backend, and the embedded Rust `zzstat` core engine.
 
 ---
 

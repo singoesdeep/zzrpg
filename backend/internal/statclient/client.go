@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singoesdeep/zzstat/bindings/go"
+	zzstat "github.com/singoesdeep/zzstat/bindings/go"
 )
 
 type CharacterState struct {
@@ -77,7 +77,7 @@ func NewClient(addr string) (Client, error) {
 			"./libzzstat_ffi.so",
 			"libzzstat_ffi.so",
 		}
-		
+
 		var err error
 		for _, path := range paths {
 			if path == "" {
@@ -113,7 +113,7 @@ func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState
 
 	// 1. Group modifiers by stat target
 	modifiersByStat := make(map[string][]Modifier)
-	
+
 	// Add base stats as modifiers (priority 10, source "base")
 	for stat, val := range state.BaseStats {
 		modifiersByStat[stat] = append(modifiersByStat[stat], Modifier{
@@ -124,7 +124,7 @@ func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState
 			SourceID:  "base_stat",
 		})
 	}
-	
+
 	for _, m := range state.Equipment {
 		modifiersByStat[m.Stat] = append(modifiersByStat[m.Stat], m)
 	}
@@ -177,9 +177,10 @@ func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState
 		var addSum float64
 		var multSum float64
 		for _, m := range modifiersByStat[derived] {
-			if m.Operation == "ADD" {
+			switch m.Operation {
+			case "ADD":
 				addSum += m.Value
-			} else if m.Operation == "MULTIPLY" {
+			case "MULTIPLY":
 				multSum += m.Value
 			}
 		}

@@ -1,4 +1,4 @@
-# Architecture Document: zzrpg Backend
+# Architecture Document: zzrpg Backend (EN)
 
 This document outlines the high-level system architecture, modular monolith design, technology stack, and component communication patterns for `zzrpg`.
 
@@ -101,7 +101,7 @@ backend/
 │   ├── logger/               # Structured logging (slog/zap)
 │   └── utils/                # General helpers (UUID, hashing, etc.)
 ├── go.mod
-└── go.sum
+├── go.sum
 ```
 
 ### Module Boundaries and Dependency Injection

@@ -2,6 +2,7 @@ package statclient
 
 import (
 	"context"
+	"math/rand"
 	"testing"
 )
 
@@ -12,6 +13,10 @@ func TestStatClient(t *testing.T) {
 		t.Fatalf("failed to create client: %v", err)
 	}
 	defer client.Close()
+
+	// Seed RNG for deterministic test runs
+	impl := client.(*embeddedStatClient)
+	impl.rng = rand.New(rand.NewSource(42))
 
 	// 2. Test stats calculation
 	state := CharacterState{
@@ -78,3 +83,70 @@ func TestStatClient(t *testing.T) {
 		t.Errorf("unexpected combat damage result: got %d, expected range [202, 248]", combatRes.Damage)
 	}
 }
+
+func TestStatClientEdgeCases(t *testing.T) {
+	client, err := NewClient("")
+	if err != nil {
+		t.Fatalf("failed to create client: %v", err)
+	}
+	defer client.Close()
+
+	// Seed RNG for deterministic test runs
+	impl := client.(*embeddedStatClient)
+	impl.rng = rand.New(rand.NewSource(42))
+
+	// Scenario 1: Debuffs & Negative Modifiers
+	// Base DEX = 20, debuff -15% speed/DEX modifier
+	state := CharacterState{
+		CharacterID: 102,
+		BaseStats: map[string]float64{
+			"STR": 10, "CON": 10, "INT": 10, "DEX": 20,
+		},
+		ActiveBuffs: []Modifier{
+			{Stat: "DEX", Operation: "MULTIPLY", Value: -0.15, Priority: 30, SourceID: "slow_debuff"},
+		},
+	}
+
+	result, err := client.Calculate(context.Background(), state)
+	if err != nil {
+		t.Fatalf("calculation failed: %v", err)
+	}
+
+	// DEX = 20 * (1 - 0.15) = 20 * 0.85 = 17.0
+	expectedDEX := 17.0
+	if result["DEX"] != expectedDEX {
+		t.Errorf("unexpected DEX calculation: expected %f, got %f", expectedDEX, result["DEX"])
+	}
+
+	// Scenario 2: Non-crit normal damage and fallback bounds
+	combatReq := CalculateDamageReq{
+		Attacker: CombatStats{
+			Level:           5,
+			Attack:          40,
+			CritRate:        0.0, // 0% crit rate
+			CritDamageBonus: 0.0,
+		},
+		Defender: CombatStats{
+			Level:   5,
+			Defense: 35, // Low difference -> base damage = 5
+			Dex:     10,
+		},
+	}
+
+	combatRes, err := client.CalculateDamage(context.Background(), combatReq)
+	if err != nil {
+		t.Fatalf("combat calculation failed: %v", err)
+	}
+
+	// Since CritRate = 0%, it should not crit
+	if combatRes.IsCrit {
+		t.Errorf("unexpected crit status: expected false, got true")
+	}
+
+	// Base damage = 40 - 35 = 5.
+	// Variance: 5 * [0.9 .. 1.1] -> [4.5 .. 5.5] -> rounded to [4 .. 6] (or [4, 5, 6])
+	if combatRes.Damage < 4 || combatRes.Damage > 6 {
+		t.Errorf("unexpected combat damage result: got %d, expected range [4, 6]", combatRes.Damage)
+	}
+}
+

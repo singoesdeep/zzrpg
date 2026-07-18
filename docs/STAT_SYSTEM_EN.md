@@ -1,4 +1,4 @@
-# Stat System Design: Embedded Rust zzstat Engine FFI Integration
+# Stat System Design: Embedded Rust zzstat Engine FFI Integration (EN)
 
 All stat calculations for the game are outsourced to the embedded Rust `zzstat` library. The Go backend does not perform stat math itself. It acts as an orchestrator that gathers active modifiers, registers them to the in-process resolver, and caches the resolved values.
 

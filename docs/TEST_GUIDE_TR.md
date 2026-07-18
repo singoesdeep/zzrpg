@@ -1,36 +1,36 @@
-# Testing Guide: zzrpg Month 1 Setup
+# Test Kılavuzu: zzrpg Month 1 Kurulumu (TR)
 
-Follow these steps to run the infrastructure, start the services, and test the APIs using `curl`.
+Altyapıyı çalıştırmak, servisleri başlatmak ve API'leri `curl` kullanarak test etmek için aşağıdaki adımları takip edin.
 
 ---
 
-## Step 1: Start the Podman Infrastructure
+## Adım 1: Podman Altyapısını Başlatın
 
-Run the helper script from the project root to start PostgreSQL and Redis:
+PostgreSQL ve Redis veritabanlarını başlatmak için proje kök dizinindeki yardımcı betiği çalıştırın:
 ```bash
 ./scripts/start-infra.sh
 ```
 
 ---
 
-## Step 2: Build the Rust zzstat shared library
+## Adım 2: Rust zzstat Paylaşımlı Kütüphanesini Derleyin
 
-Open a terminal and compile the Rust core FFI bindings dynamically linked shared library:
+Bir terminal açın ve Rust core FFI bağlayıcı dinamik kütüphanesini derleyin:
 ```bash
 cargo build --release -p zzstat-ffi
 ```
-Ensure the library is built at `zzstat/target/release/libzzstat_ffi.so`. The Go backend client will load this dynamically at runtime.
+Kütüphanenin `zzstat/target/release/libzzstat_ffi.so` yolunda derlendiğinden emin olun. Go backend istemcisi çalışma zamanında bu kütüphaneyi dinamik olarak yükleyecektir.
 
 ---
 
-## Step 3: Start the Go Backend Server
+## Adım 3: Go Backend Sunucusunu Başlatın
 
-Open a second terminal, navigate to the `backend/` directory, and run:
+İkinci bir terminal açın, `backend/` dizinine gidin ve sunucuyu çalıştırın:
 ```bash
 cd backend
 go run ./cmd/server
 ```
-You should see:
+Şu çıktıyı görmelisiniz:
 ```
 Starting zzrpg backend...
 Connecting to PostgreSQL...
@@ -39,43 +39,43 @@ Running database migrations...
 All database migrations completed successfully
 HTTP server listening on :8080
 ```
-Keep this terminal open.
+Bu terminali açık tutun.
 
 ---
 
-## Step 4: Run test requests via curl
+## Adım 4: curl ile Test İstekleri Gönderin
 
-Open a third terminal to run test commands:
+Test komutlarını çalıştırmak için üçüncü bir terminal açın:
 
-### 1. Check API & DB Health
+### 1. API ve Veritabanı Sağlık Durumunu Kontrol Edin
 ```bash
 curl -i http://localhost:8080/health
 ```
-**Expected Response (HTTP 200):**
+**Beklenen Yanıt (HTTP 200):**
 ```json
 {"status":"UP", "database":"OK"}
 ```
 
-### 2. Register a New User
+### 2. Yeni Kullanıcı Kaydı Yapın
 ```bash
 curl -i -X POST \
   -H "Content-Type: application/json" \
   -d '{"username":"singo","email":"singo@test.com","password":"password123"}' \
   http://localhost:8080/api/v1/auth/register
 ```
-**Expected Response (HTTP 201):**
+**Beklenen Yanıt (HTTP 201):**
 ```json
 {"success":true,"data":{"user_id":1,"username":"singo","email":"singo@test.com"}}
 ```
 
-### 3. Log In & Retrieve JWT Token
+### 3. Giriş Yapın ve JWT Token Alın
 ```bash
 curl -i -X POST \
   -H "Content-Type: application/json" \
   -d '{"username":"singo","password":"password123"}' \
   http://localhost:8080/api/v1/auth/login
 ```
-**Expected Response (HTTP 200):**
+**Beklenen Yanıt (HTTP 200):**
 ```json
 {
   "success": true,
@@ -85,27 +85,27 @@ curl -i -X POST \
   }
 }
 ```
-*Copy the `token` value from the response to use in the next steps.*
+*Sonraki adımlarda kullanmak üzere yanıttaki `token` değerini kopyalayın.*
 
 ---
 
-## Step 5: Test Authenticated Endpoints
+## Adım 5: Yetkilendirilmiş Endpoint'leri Test Edin
 
-Set a temporary environment variable in your terminal for the JWT token:
+Token'ı terminalinizde geçici bir çevre değişkeni olarak tanımlayın:
 ```bash
-export TOKEN="your_jwt_token_here"
+export TOKEN="kopyaladığınız_token_değeri"
 ```
 
-### 1. Verify User Profile Info (Me endpoint)
+### 1. Kullanıcı Profil Bilgilerini Doğrulayın (Me endpoint)
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/auth/me
 ```
-**Expected Response (HTTP 200):**
+**Beklenen Yanıt (HTTP 200):**
 ```json
 {"success":true,"data":{"user_id":1,"username":"singo"}}
 ```
 
-### 2. Create a Character (WARRIOR class)
+### 2. Bir Karakter Oluşturun (WARRIOR sınıfı)
 ```bash
 curl -i -X POST \
   -H "Authorization: Bearer $TOKEN" \
@@ -113,7 +113,7 @@ curl -i -X POST \
   -d '{"name":"WarriorGod","class_name":"WARRIOR"}' \
   http://localhost:8080/api/v1/characters
 ```
-**Expected Response (HTTP 201):**
+**Beklenen Yanıt (HTTP 201):**
 ```json
 {
   "success": true,
@@ -138,18 +138,18 @@ curl -i -X POST \
 }
 ```
 
-### 3. List All Your Characters
+### 3. Tüm Karakterlerinizi Listeleyin
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/characters
 ```
-**Expected Response (HTTP 200):**
+**Beklenen Yanıt (HTTP 200):**
 ```json
 {"success":true,"data":[{"id":1,"user_id":1,"name":"WarriorGod","class_name":"WARRIOR","level":1,"experience":0,"gold":0,"last_active_at":"...","created_at":"...","updated_at":"..."}]}
 ```
 
-### 4. Fetch Details & Stats of Character #1
+### 4. Karakter #1'in Detaylarını ve Statülerini Getirin
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/characters/1
 ```
-**Expected Response (HTTP 200):**
-Same detailed JSON response showing the character attributes and computed initial stats cache.
+**Beklenen Yanıt (HTTP 200):**
+Karakter özelliklerini ve hesaplanmış başlangıç statülerini gösteren benzer detaylı JSON yanıtı.
