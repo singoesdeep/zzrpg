@@ -201,6 +201,234 @@ func (x *CalculateStatsResponse) GetFinalStats() map[string]float64 {
 	return nil
 }
 
+type CombatStats struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Level           int32                  `protobuf:"varint,1,opt,name=level,proto3" json:"level,omitempty"`
+	Attack          float64                `protobuf:"fixed64,2,opt,name=attack,proto3" json:"attack,omitempty"`
+	Defense         float64                `protobuf:"fixed64,3,opt,name=defense,proto3" json:"defense,omitempty"`
+	Dex             float64                `protobuf:"fixed64,4,opt,name=dex,proto3" json:"dex,omitempty"`
+	CritRate        float64                `protobuf:"fixed64,5,opt,name=crit_rate,json=critRate,proto3" json:"crit_rate,omitempty"`
+	CritDamageBonus float64                `protobuf:"fixed64,6,opt,name=crit_damage_bonus,json=critDamageBonus,proto3" json:"crit_damage_bonus,omitempty"`
+	AccModifiers    float64                `protobuf:"fixed64,7,opt,name=acc_modifiers,json=accModifiers,proto3" json:"acc_modifiers,omitempty"`
+	DodgeModifiers  float64                `protobuf:"fixed64,8,opt,name=dodge_modifiers,json=dodgeModifiers,proto3" json:"dodge_modifiers,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CombatStats) Reset() {
+	*x = CombatStats{}
+	mi := &file_zzstat_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CombatStats) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CombatStats) ProtoMessage() {}
+
+func (x *CombatStats) ProtoReflect() protoreflect.Message {
+	mi := &file_zzstat_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CombatStats.ProtoReflect.Descriptor instead.
+func (*CombatStats) Descriptor() ([]byte, []int) {
+	return file_zzstat_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *CombatStats) GetLevel() int32 {
+	if x != nil {
+		return x.Level
+	}
+	return 0
+}
+
+func (x *CombatStats) GetAttack() float64 {
+	if x != nil {
+		return x.Attack
+	}
+	return 0
+}
+
+func (x *CombatStats) GetDefense() float64 {
+	if x != nil {
+		return x.Defense
+	}
+	return 0
+}
+
+func (x *CombatStats) GetDex() float64 {
+	if x != nil {
+		return x.Dex
+	}
+	return 0
+}
+
+func (x *CombatStats) GetCritRate() float64 {
+	if x != nil {
+		return x.CritRate
+	}
+	return 0
+}
+
+func (x *CombatStats) GetCritDamageBonus() float64 {
+	if x != nil {
+		return x.CritDamageBonus
+	}
+	return 0
+}
+
+func (x *CombatStats) GetAccModifiers() float64 {
+	if x != nil {
+		return x.AccModifiers
+	}
+	return 0
+}
+
+func (x *CombatStats) GetDodgeModifiers() float64 {
+	if x != nil {
+		return x.DodgeModifiers
+	}
+	return 0
+}
+
+type CalculateDamageRequest struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Attacker        *CombatStats           `protobuf:"bytes,1,opt,name=attacker,proto3" json:"attacker,omitempty"`
+	Defender        *CombatStats           `protobuf:"bytes,2,opt,name=defender,proto3" json:"defender,omitempty"`
+	SkillMultiplier float64                `protobuf:"fixed64,3,opt,name=skill_multiplier,json=skillMultiplier,proto3" json:"skill_multiplier,omitempty"`
+	SkillFlatDamage float64                `protobuf:"fixed64,4,opt,name=skill_flat_damage,json=skillFlatDamage,proto3" json:"skill_flat_damage,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *CalculateDamageRequest) Reset() {
+	*x = CalculateDamageRequest{}
+	mi := &file_zzstat_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CalculateDamageRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CalculateDamageRequest) ProtoMessage() {}
+
+func (x *CalculateDamageRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_zzstat_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CalculateDamageRequest.ProtoReflect.Descriptor instead.
+func (*CalculateDamageRequest) Descriptor() ([]byte, []int) {
+	return file_zzstat_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CalculateDamageRequest) GetAttacker() *CombatStats {
+	if x != nil {
+		return x.Attacker
+	}
+	return nil
+}
+
+func (x *CalculateDamageRequest) GetDefender() *CombatStats {
+	if x != nil {
+		return x.Defender
+	}
+	return nil
+}
+
+func (x *CalculateDamageRequest) GetSkillMultiplier() float64 {
+	if x != nil {
+		return x.SkillMultiplier
+	}
+	return 0
+}
+
+func (x *CalculateDamageRequest) GetSkillFlatDamage() float64 {
+	if x != nil {
+		return x.SkillFlatDamage
+	}
+	return 0
+}
+
+type CalculateDamageResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	IsHit         bool                   `protobuf:"varint,1,opt,name=is_hit,json=isHit,proto3" json:"is_hit,omitempty"`
+	Damage        int32                  `protobuf:"varint,2,opt,name=damage,proto3" json:"damage,omitempty"`
+	IsCrit        bool                   `protobuf:"varint,3,opt,name=is_crit,json=isCrit,proto3" json:"is_crit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CalculateDamageResponse) Reset() {
+	*x = CalculateDamageResponse{}
+	mi := &file_zzstat_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CalculateDamageResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CalculateDamageResponse) ProtoMessage() {}
+
+func (x *CalculateDamageResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_zzstat_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CalculateDamageResponse.ProtoReflect.Descriptor instead.
+func (*CalculateDamageResponse) Descriptor() ([]byte, []int) {
+	return file_zzstat_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *CalculateDamageResponse) GetIsHit() bool {
+	if x != nil {
+		return x.IsHit
+	}
+	return false
+}
+
+func (x *CalculateDamageResponse) GetDamage() int32 {
+	if x != nil {
+		return x.Damage
+	}
+	return 0
+}
+
+func (x *CalculateDamageResponse) GetIsCrit() bool {
+	if x != nil {
+		return x.IsCrit
+	}
+	return false
+}
+
 var File_zzstat_proto protoreflect.FileDescriptor
 
 const file_zzstat_proto_rawDesc = "" +
@@ -221,9 +449,29 @@ const file_zzstat_proto_rawDesc = "" +
 	"finalStats\x1a=\n" +
 	"\x0fFinalStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x012^\n" +
+	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\"\xfe\x01\n" +
+	"\vCombatStats\x12\x14\n" +
+	"\x05level\x18\x01 \x01(\x05R\x05level\x12\x16\n" +
+	"\x06attack\x18\x02 \x01(\x01R\x06attack\x12\x18\n" +
+	"\adefense\x18\x03 \x01(\x01R\adefense\x12\x10\n" +
+	"\x03dex\x18\x04 \x01(\x01R\x03dex\x12\x1b\n" +
+	"\tcrit_rate\x18\x05 \x01(\x01R\bcritRate\x12*\n" +
+	"\x11crit_damage_bonus\x18\x06 \x01(\x01R\x0fcritDamageBonus\x12#\n" +
+	"\racc_modifiers\x18\a \x01(\x01R\faccModifiers\x12'\n" +
+	"\x0fdodge_modifiers\x18\b \x01(\x01R\x0edodgeModifiers\"\xd1\x01\n" +
+	"\x16CalculateDamageRequest\x12/\n" +
+	"\battacker\x18\x01 \x01(\v2\x13.zzstat.CombatStatsR\battacker\x12/\n" +
+	"\bdefender\x18\x02 \x01(\v2\x13.zzstat.CombatStatsR\bdefender\x12)\n" +
+	"\x10skill_multiplier\x18\x03 \x01(\x01R\x0fskillMultiplier\x12*\n" +
+	"\x11skill_flat_damage\x18\x04 \x01(\x01R\x0fskillFlatDamage\"a\n" +
+	"\x17CalculateDamageResponse\x12\x15\n" +
+	"\x06is_hit\x18\x01 \x01(\bR\x05isHit\x12\x16\n" +
+	"\x06damage\x18\x02 \x01(\x05R\x06damage\x12\x17\n" +
+	"\ais_crit\x18\x03 \x01(\bR\x06isCrit2^\n" +
 	"\vStatService\x12O\n" +
-	"\x0eCalculateStats\x12\x1d.zzstat.CalculateStatsRequest\x1a\x1e.zzstat.CalculateStatsResponseB=Z;github.com/singoesdeep/zzrpg/backend/internal/statclient/pbb\x06proto3"
+	"\x0eCalculateStats\x12\x1d.zzstat.CalculateStatsRequest\x1a\x1e.zzstat.CalculateStatsResponse2c\n" +
+	"\rCombatService\x12R\n" +
+	"\x0fCalculateDamage\x12\x1e.zzstat.CalculateDamageRequest\x1a\x1f.zzstat.CalculateDamageResponseB=Z;github.com/singoesdeep/zzrpg/backend/internal/statclient/pbb\x06proto3"
 
 var (
 	file_zzstat_proto_rawDescOnce sync.Once
@@ -237,23 +485,30 @@ func file_zzstat_proto_rawDescGZIP() []byte {
 	return file_zzstat_proto_rawDescData
 }
 
-var file_zzstat_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_zzstat_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_zzstat_proto_goTypes = []any{
-	(*StatModifier)(nil),           // 0: zzstat.StatModifier
-	(*CalculateStatsRequest)(nil),  // 1: zzstat.CalculateStatsRequest
-	(*CalculateStatsResponse)(nil), // 2: zzstat.CalculateStatsResponse
-	nil,                            // 3: zzstat.CalculateStatsResponse.FinalStatsEntry
+	(*StatModifier)(nil),            // 0: zzstat.StatModifier
+	(*CalculateStatsRequest)(nil),   // 1: zzstat.CalculateStatsRequest
+	(*CalculateStatsResponse)(nil),  // 2: zzstat.CalculateStatsResponse
+	(*CombatStats)(nil),             // 3: zzstat.CombatStats
+	(*CalculateDamageRequest)(nil),  // 4: zzstat.CalculateDamageRequest
+	(*CalculateDamageResponse)(nil), // 5: zzstat.CalculateDamageResponse
+	nil,                             // 6: zzstat.CalculateStatsResponse.FinalStatsEntry
 }
 var file_zzstat_proto_depIdxs = []int32{
 	0, // 0: zzstat.CalculateStatsRequest.modifiers:type_name -> zzstat.StatModifier
-	3, // 1: zzstat.CalculateStatsResponse.final_stats:type_name -> zzstat.CalculateStatsResponse.FinalStatsEntry
-	1, // 2: zzstat.StatService.CalculateStats:input_type -> zzstat.CalculateStatsRequest
-	2, // 3: zzstat.StatService.CalculateStats:output_type -> zzstat.CalculateStatsResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	6, // 1: zzstat.CalculateStatsResponse.final_stats:type_name -> zzstat.CalculateStatsResponse.FinalStatsEntry
+	3, // 2: zzstat.CalculateDamageRequest.attacker:type_name -> zzstat.CombatStats
+	3, // 3: zzstat.CalculateDamageRequest.defender:type_name -> zzstat.CombatStats
+	1, // 4: zzstat.StatService.CalculateStats:input_type -> zzstat.CalculateStatsRequest
+	4, // 5: zzstat.CombatService.CalculateDamage:input_type -> zzstat.CalculateDamageRequest
+	2, // 6: zzstat.StatService.CalculateStats:output_type -> zzstat.CalculateStatsResponse
+	5, // 7: zzstat.CombatService.CalculateDamage:output_type -> zzstat.CalculateDamageResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_zzstat_proto_init() }
@@ -267,9 +522,9 @@ func file_zzstat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_zzstat_proto_rawDesc), len(file_zzstat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   7,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_zzstat_proto_goTypes,
 		DependencyIndexes: file_zzstat_proto_depIdxs,

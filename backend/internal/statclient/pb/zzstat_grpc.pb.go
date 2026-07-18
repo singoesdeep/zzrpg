@@ -119,3 +119,105 @@ var StatService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "zzstat.proto",
 }
+
+const (
+	CombatService_CalculateDamage_FullMethodName = "/zzstat.CombatService/CalculateDamage"
+)
+
+// CombatServiceClient is the client API for CombatService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type CombatServiceClient interface {
+	CalculateDamage(ctx context.Context, in *CalculateDamageRequest, opts ...grpc.CallOption) (*CalculateDamageResponse, error)
+}
+
+type combatServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewCombatServiceClient(cc grpc.ClientConnInterface) CombatServiceClient {
+	return &combatServiceClient{cc}
+}
+
+func (c *combatServiceClient) CalculateDamage(ctx context.Context, in *CalculateDamageRequest, opts ...grpc.CallOption) (*CalculateDamageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CalculateDamageResponse)
+	err := c.cc.Invoke(ctx, CombatService_CalculateDamage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CombatServiceServer is the server API for CombatService service.
+// All implementations must embed UnimplementedCombatServiceServer
+// for forward compatibility.
+type CombatServiceServer interface {
+	CalculateDamage(context.Context, *CalculateDamageRequest) (*CalculateDamageResponse, error)
+	mustEmbedUnimplementedCombatServiceServer()
+}
+
+// UnimplementedCombatServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedCombatServiceServer struct{}
+
+func (UnimplementedCombatServiceServer) CalculateDamage(context.Context, *CalculateDamageRequest) (*CalculateDamageResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CalculateDamage not implemented")
+}
+func (UnimplementedCombatServiceServer) mustEmbedUnimplementedCombatServiceServer() {}
+func (UnimplementedCombatServiceServer) testEmbeddedByValue()                       {}
+
+// UnsafeCombatServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to CombatServiceServer will
+// result in compilation errors.
+type UnsafeCombatServiceServer interface {
+	mustEmbedUnimplementedCombatServiceServer()
+}
+
+func RegisterCombatServiceServer(s grpc.ServiceRegistrar, srv CombatServiceServer) {
+	// If the following call panics, it indicates UnimplementedCombatServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&CombatService_ServiceDesc, srv)
+}
+
+func _CombatService_CalculateDamage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CalculateDamageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CombatServiceServer).CalculateDamage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CombatService_CalculateDamage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CombatServiceServer).CalculateDamage(ctx, req.(*CalculateDamageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// CombatService_ServiceDesc is the grpc.ServiceDesc for CombatService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var CombatService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "zzstat.CombatService",
+	HandlerType: (*CombatServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CalculateDamage",
+			Handler:    _CombatService_CalculateDamage_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "zzstat.proto",
+}

@@ -8,6 +8,10 @@ service StatService {
   rpc CalculateStats (CalculateStatsRequest) returns (CalculateStatsResponse);
 }
 
+service CombatService {
+  rpc CalculateDamage (CalculateDamageRequest) returns (CalculateDamageResponse);
+}
+
 message StatModifier {
   string stat = 1;         // "ATTACK", "DEFENSE", "HP", "CRIT_RATE", etc.
   string operation = 2;    // "ADD", "MULTIPLY"
@@ -24,4 +28,28 @@ message CalculateStatsRequest {
 
 message CalculateStatsResponse {
   map<string, double> final_stats = 1; // e.g. {"HP": 5000, "ATTACK": 350, "DEFENSE": 200, "CRIT_RATE": 15}
+}
+
+message CombatStats {
+  int32 level = 1;
+  double attack = 2;
+  double defense = 3;
+  double dex = 4;
+  double crit_rate = 5;
+  double crit_damage_bonus = 6;
+  double acc_modifiers = 7;
+  double dodge_modifiers = 8;
+}
+
+message CalculateDamageRequest {
+  CombatStats attacker = 1;
+  CombatStats defender = 2;
+  double skill_multiplier = 3;
+  double skill_flat_damage = 4;
+}
+
+message CalculateDamageResponse {
+  bool is_hit = 1;
+  int32 damage = 2;
+  bool is_crit = 3;
 }
