@@ -3,6 +3,9 @@
 # Exit immediately if a command exits with a non-zero status
 set -e
 
+# Navigate to the project root directory where docker-compose.yml is located
+cd "$(dirname "$0")/.."
+
 echo "=== Initializing zzrpg Infrastructure via Podman ==="
 
 # Check if podman is installed
