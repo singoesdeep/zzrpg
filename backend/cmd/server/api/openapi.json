@@ -309,6 +309,46 @@
         }
       }
     },
+    "/api/v1/characters/{id}/stats": {
+      "get": {
+        "summary": "Get character base and derived stats",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" },
+            "description": "Character ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Calculated stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "character_id": { "type": "integer", "example": 1 },
+                        "base_stats": { "type": "object" },
+                        "derived_stats": { "type": "object" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Character not found" }
+        }
+      }
+    },
     "/api/v1/admin/items": {
       "get": {
         "summary": "List all item definitions",
