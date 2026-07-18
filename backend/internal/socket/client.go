@@ -49,8 +49,11 @@ type SelectCharPayload struct {
 	CharacterID int64 `json:"character_id"`
 }
 
-func (c *Client) ReadPump(messageHandler func(*Client, WSMessage)) {
+func (c *Client) ReadPump(messageHandler func(*Client, WSMessage), disconnectHandler func(*Client)) {
 	defer func() {
+		if disconnectHandler != nil {
+			disconnectHandler(c)
+		}
 		c.Hub.Unregister <- c
 		c.Conn.Close()
 	}()

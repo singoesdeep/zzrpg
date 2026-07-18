@@ -123,6 +123,9 @@ func (m *mockCharService) AddRewards(ctx context.Context, charID int64, gold int
 	m.exp += exp
 	return false, 0, nil
 }
+func (m *mockCharService) UpdateLastActive(ctx context.Context, charID int64) error {
+	return nil
+}
 
 type mockInventoryService struct {
 	addedItems []*inventory.InventoryItem

@@ -30,6 +30,9 @@ func (m *mockCharService) SetEquipmentProvider(p character.EquipmentProvider) {}
 func (m *mockCharService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
 	return false, 0, nil
 }
+func (m *mockCharService) UpdateLastActive(ctx context.Context, charID int64) error {
+	return nil
+}
 
 type mockStatClient struct {
 	damageRes statclient.DamageResult

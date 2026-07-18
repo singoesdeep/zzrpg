@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -129,6 +130,73 @@ func main() {
 			char, err := charService.GetByID(context.Background(), payload.CharacterID)
 			if err == nil {
 				socket.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+
+				// Calculate Offline Gains
+				elapsedSeconds := time.Now().Sub(char.LastActiveAt).Seconds()
+				if elapsedSeconds >= 10 {
+					// Cap to 24 hours (86400 seconds)
+					if elapsedSeconds > 86400 {
+						elapsedSeconds = 86400
+					}
+
+					// Calculate rates based on stats
+					strVal := char.Stats.BaseStats["STR"]
+					intVal := char.Stats.BaseStats["INT"]
+					gainedGold := int64((elapsedSeconds / 60.0) * (10.0 + strVal*0.5))
+					gainedExp := int64((elapsedSeconds / 60.0) * (15.0 + intVal*0.8))
+
+					// Roll loot drops (1% chance per minute, cap 10 rolls)
+					var offlineLoot []loot.DroppedItem
+					rollCount := int(elapsedSeconds / 60.0)
+					if rollCount > 0 {
+						if rollCount > 10 {
+							rollCount = 10
+						}
+						rSource := rand.New(rand.NewSource(time.Now().UnixNano()))
+						for i := 0; i < rollCount; i++ {
+							if rSource.Float64() < 0.50 { // 50% chance to drop items
+								drops, err := lootService.RollLoot(context.Background(), "dummy_drops")
+								if err == nil {
+									for _, drop := range drops {
+										if drop.ItemDefinitionID == "gold" {
+											gainedGold += int64(drop.Quantity)
+										} else {
+											offlineLoot = append(offlineLoot, drop)
+											// Add to inventory
+											invItem := &inventory.InventoryItem{
+												CharacterID:      int32(payload.CharacterID),
+												ItemDefinitionID: drop.ItemDefinitionID,
+												Quantity:         drop.Quantity,
+												Durability:       100,
+											}
+											_ = invService.AddItem(context.Background(), invItem)
+										}
+									}
+								}
+							}
+						}
+					}
+
+					// Add offline rewards to db
+					leveledUp, newLevel, err := charService.AddRewards(context.Background(), payload.CharacterID, gainedGold, gainedExp)
+					if err == nil {
+						// Send OFFLINE_GAINS packet
+						gainsSummary, _ := json.Marshal(map[string]interface{}{
+							"type": "OFFLINE_GAINS",
+							"payload": map[string]interface{}{
+								"elapsed_seconds": elapsedSeconds,
+								"gained_gold":     gainedGold,
+								"gained_exp":      gainedExp,
+								"leveled_up":      leveledUp,
+								"new_level":       newLevel,
+								"loot":            offlineLoot,
+							},
+						})
+						client.Send <- gainsSummary
+					}
+				}
+				// Refresh LastActiveAt so it ticks from now
+				_ = charService.UpdateLastActive(context.Background(), payload.CharacterID)
 			}
 
 			ack, _ := json.Marshal(map[string]interface{}{
@@ -270,7 +338,13 @@ func main() {
 	mux.Handle("GET /api/v1/admin/loot", auth.AuthMiddleware(cfg.JWTSecret)(loot.ListLootTablesHandler(lootService)))
 
 	// WebSocket Endpoint
-	mux.HandleFunc("/ws", socket.ServeWS(hub, cfg.JWTSecret, wsMsgHandler))
+	wsDisconnectHandler := func(client *socket.Client) {
+		if client.CharacterID > 0 {
+			_ = charService.UpdateLastActive(context.Background(), client.CharacterID)
+			socket.GetRegistry().EndSession(client.CharacterID)
+		}
+	}
+	mux.HandleFunc("/ws", socket.ServeWS(hub, cfg.JWTSecret, wsMsgHandler, wsDisconnectHandler))
 
 	// Swagger API Docs routes
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {

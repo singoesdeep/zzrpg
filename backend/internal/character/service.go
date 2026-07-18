@@ -14,6 +14,7 @@ type CharacterService interface {
 	RecalculateStats(ctx context.Context, id int64) error
 	SetEquipmentProvider(p EquipmentProvider)
 	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
+	UpdateLastActive(ctx context.Context, charID int64) error
 }
 
 type characterService struct {
@@ -148,4 +149,8 @@ func (s *characterService) AddRewards(ctx context.Context, charID int64, gold in
 	}
 
 	return leveledUp, newLevel, nil
+}
+
+func (s *characterService) UpdateLastActive(ctx context.Context, charID int64) error {
+	return s.repo.UpdateLastActive(ctx, charID)
 }

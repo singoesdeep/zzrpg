@@ -8,7 +8,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 )
 
-func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage)) http.HandlerFunc {
+func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
 	// Configure upgrader to allow all origins in development
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
@@ -51,6 +51,6 @@ func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage)) ht
 
 		// Start reader and writer loops in separate goroutines
 		go client.WritePump()
-		go client.ReadPump(msgHandler)
+		go client.ReadPump(msgHandler, disconnectHandler)
 	}
 }
