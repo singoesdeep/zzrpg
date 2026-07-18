@@ -108,14 +108,14 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 		}
 	}
 
-	// 3. Assemble character state for statclient gRPC call
+	// 3. Assemble character state for embedded statclient call
 	state := statclient.CharacterState{
 		CharacterID: int32(charID),
 		BaseStats:   charWithStats.Stats.BaseStats,
 		Equipment:   eqModifiers,
 	}
 
-	// 4. Call gRPC service (or fallback if statClient is nil)
+	// 4. Call embedded client (or fallback if statClient is nil)
 	var finalStats map[string]float64
 	if s.statClient != nil {
 		finalStats, err = s.statClient.Calculate(ctx, state)
@@ -123,7 +123,7 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 			return err
 		}
 	} else {
-		// Mock fallback if gRPC is not available (mostly in tests or local fallback)
+		// Mock fallback if client is not available (mostly in tests or local fallback)
 		finalStats = map[string]float64{
 			"HP":        charWithStats.Stats.BaseStats["CON"] * 15,
 			"MP":        charWithStats.Stats.BaseStats["INT"] * 10,

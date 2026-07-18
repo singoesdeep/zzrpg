@@ -59,16 +59,16 @@ func main() {
 	userRepo := auth.NewUserRepository(db.Pool)
 	authService := auth.NewAuthService(userRepo, cfg.JWTSecret)
 
-	// Initialize statclient gRPC connection
+	// Initialize embedded statclient
 	statClient, err := statclient.NewClient(cfg.ZzstatGRPCURL)
 	if err != nil {
-		log.Warn("Failed to connect to Rust zzstat service. Stat calculations will use fallback.", "error", err)
+		log.Warn("Failed to load embedded Rust zzstat library. Stat calculations will use fallback.", "error", err)
 	} else {
-		log.Info("Successfully initialized gRPC statclient connecting to Rust zzstat service")
+		log.Info("Successfully initialized embedded statclient loading Rust zzstat shared library")
 		// Close connection on server shutdown
 		defer func() {
 			if err := statClient.Close(); err != nil {
-				log.Error("Failed to close gRPC statclient connection", "error", err)
+				log.Error("Failed to close statclient", "error", err)
 			}
 		}()
 	}

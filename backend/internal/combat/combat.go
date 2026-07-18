@@ -140,8 +140,8 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		defenderIsDead = defSess.IsDead
 	}
 
-	// 3. Call Rust zzstat CombatService via gRPC client
-	grpcReq := statclient.CalculateDamageReq{
+	// 3. Call Rust zzstat Core via embedded statclient
+	calcReq := statclient.CalculateDamageReq{
 		Attacker: statclient.CombatStats{
 			Level:           attackerLevel,
 			Attack:          attackerAtk,
@@ -159,9 +159,9 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		SkillFlatDamage: req.SkillFlatDamage,
 	}
 
-	res, err := s.statClient.CalculateDamage(ctx, grpcReq)
+	res, err := s.statClient.CalculateDamage(ctx, calcReq)
 	if err != nil {
-		// Fallback physical formula if gRPC failed
+		// Fallback physical formula if embedded client failed
 		res = statclient.DamageResult{
 			IsHit:  true,
 			Damage: int32(attackerAtk - defenderDef),
