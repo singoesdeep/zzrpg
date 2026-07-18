@@ -3,10 +3,13 @@ package statclient
 import (
 	"context"
 	"fmt"
+	"math"
+	"math/rand"
+	"os"
+	"sync"
+	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/statclient/pb"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"github.com/singoesdeep/zzstat/bindings/go"
 )
 
 type CharacterState struct {
@@ -55,129 +58,210 @@ type Client interface {
 	Close() error
 }
 
-type grpcStatClient struct {
-	conn         *grpc.ClientConn
-	grpcClient   pb.StatServiceClient
-	combatClient pb.CombatServiceClient
+type embeddedStatClient struct {
+	rng *rand.Rand
 }
 
+var (
+	loadOnce sync.Once
+	loadErr  error
+)
+
 func NewClient(addr string) (Client, error) {
-	conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to stat service at %s: %w", addr, err)
+	// Dynamically load the library once
+	loadOnce.Do(func() {
+		// Attempt fallback search paths
+		paths := []string{
+			os.Getenv("ZZSTAT_LIB_PATH"),
+			"/home/singo/github.com/singoesdeep/zzstat/target/release/libzzstat_ffi.so",
+			"./libzzstat_ffi.so",
+			"libzzstat_ffi.so",
+		}
+		
+		var err error
+		for _, path := range paths {
+			if path == "" {
+				continue
+			}
+			if _, statErr := os.Stat(path); statErr == nil || path == "libzzstat_ffi.so" {
+				err = zzstat.LoadLibrary(path)
+				if err == nil {
+					break
+				}
+			}
+		}
+		if err != nil {
+			loadErr = fmt.Errorf("failed to load zzstat library: %w", err)
+		}
+	})
+
+	if loadErr != nil {
+		return nil, loadErr
 	}
 
-	grpcClient := pb.NewStatServiceClient(conn)
-	combatClient := pb.NewCombatServiceClient(conn)
-	return &grpcStatClient{
-		conn:         conn,
-		grpcClient:   grpcClient,
-		combatClient: combatClient,
+	return &embeddedStatClient{
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}, nil
 }
 
-func (c *grpcStatClient) Calculate(ctx context.Context, state CharacterState) (map[string]float64, error) {
-	var pbModifiers []*pb.StatModifier
+func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState) (map[string]float64, error) {
+	resolver := zzstat.NewResolver()
+	defer resolver.Free()
 
-	// 1. Add base stats as modifiers (priority 10, source "base")
+	sCtx := zzstat.NewContext()
+	defer sCtx.Free()
+
+	// 1. Group modifiers by stat target
+	modifiersByStat := make(map[string][]Modifier)
+	
+	// Add base stats as modifiers (priority 10, source "base")
 	for stat, val := range state.BaseStats {
-		pbModifiers = append(pbModifiers, &pb.StatModifier{
+		modifiersByStat[stat] = append(modifiersByStat[stat], Modifier{
 			Stat:      stat,
 			Operation: "ADD",
 			Value:     val,
 			Priority:  10,
-			Source:    "base",
-			SourceId:  "base_stat",
+			SourceID:  "base_stat",
 		})
 	}
-
-	// 2. Add equipment modifiers
+	
 	for _, m := range state.Equipment {
-		pbModifiers = append(pbModifiers, &pb.StatModifier{
-			Stat:      m.Stat,
-			Operation: m.Operation,
-			Value:     m.Value,
-			Priority:  m.Priority,
-			Source:    "equipment",
-			SourceId:  m.SourceID,
-		})
+		modifiersByStat[m.Stat] = append(modifiersByStat[m.Stat], m)
 	}
-
-	// 3. Add skills modifiers
 	for _, m := range state.Skills {
-		pbModifiers = append(pbModifiers, &pb.StatModifier{
-			Stat:      m.Stat,
-			Operation: m.Operation,
-			Value:     m.Value,
-			Priority:  m.Priority,
-			Source:    "skill",
-			SourceId:  m.SourceID,
-		})
+		modifiersByStat[m.Stat] = append(modifiersByStat[m.Stat], m)
 	}
-
-	// 4. Add active buffs modifiers
 	for _, m := range state.ActiveBuffs {
-		pbModifiers = append(pbModifiers, &pb.StatModifier{
-			Stat:      m.Stat,
-			Operation: m.Operation,
-			Value:     m.Value,
-			Priority:  m.Priority,
-			Source:    "buff",
-			SourceId:  m.SourceID,
-		})
+		modifiersByStat[m.Stat] = append(modifiersByStat[m.Stat], m)
 	}
 
-	req := &pb.CalculateStatsRequest{
-		CharacterId: state.CharacterID,
-		Modifiers:   pbModifiers,
+	// 2. Setup STR, INT, DEX, CON first as constant sources + multiplicative transforms
+	for _, prim := range []string{"STR", "INT", "DEX", "CON"} {
+		var addSum float64
+		var multSum float64
+		hasSource := false
+		for _, m := range modifiersByStat[prim] {
+			if m.Operation == "ADD" {
+				addSum += m.Value
+				hasSource = true
+			} else if m.Operation == "MULTIPLY" {
+				multSum += m.Value
+			}
+		}
+		if hasSource {
+			resolver.RegisterConstantSource(prim, addSum)
+		} else {
+			resolver.RegisterConstantSource(prim, 0.0)
+		}
+		if multSum != 0.0 {
+			resolver.RegisterMultiplicativeTransform(prim, zzstat.PhaseMultiplicative, zzstat.RuleMultiplicative, 1.0+multSum)
+		}
 	}
 
-	resp, err := c.grpcClient.CalculateStats(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("grpc calculate stats failed: %w", err)
+	// 3. Register base derived stats as scaling transforms or constants
+	// HP = CON * 15.0
+	resolver.RegisterScalingTransform("HP", zzstat.PhaseAdditive, zzstat.RuleAdditive, "CON", 15.0)
+	// MP = INT * 10.0
+	resolver.RegisterScalingTransform("MP", zzstat.PhaseAdditive, zzstat.RuleAdditive, "INT", 10.0)
+	// ATTACK = STR * 2.0 + DEX * 0.5
+	resolver.RegisterScalingTransform("ATTACK", zzstat.PhaseAdditive, zzstat.RuleAdditive, "STR", 2.0)
+	resolver.RegisterScalingTransform("ATTACK", zzstat.PhaseAdditive, zzstat.RuleAdditive, "DEX", 0.5)
+	// DEFENSE = CON * 1.0 + STR * 0.2
+	resolver.RegisterScalingTransform("DEFENSE", zzstat.PhaseAdditive, zzstat.RuleAdditive, "CON", 1.0)
+	resolver.RegisterScalingTransform("DEFENSE", zzstat.PhaseAdditive, zzstat.RuleAdditive, "STR", 0.2)
+	// CRIT_RATE = 5.0 base
+	resolver.RegisterConstantSource("CRIT_RATE", 5.0)
+
+	// 4. Register modifiers for derived stats (HP, MP, ATTACK, DEFENSE, CRIT_RATE)
+	for _, derived := range []string{"HP", "MP", "ATTACK", "DEFENSE", "CRIT_RATE"} {
+		var addSum float64
+		var multSum float64
+		for _, m := range modifiersByStat[derived] {
+			if m.Operation == "ADD" {
+				addSum += m.Value
+			} else if m.Operation == "MULTIPLY" {
+				multSum += m.Value
+			}
+		}
+		if addSum > 0.0 {
+			resolver.RegisterConstantSource(derived, addSum)
+		}
+		if multSum != 0.0 {
+			resolver.RegisterMultiplicativeTransform(derived, zzstat.PhaseMultiplicative, zzstat.RuleMultiplicative, 1.0+multSum)
+		}
 	}
 
-	return resp.FinalStats, nil
+	// 5. Resolve final values
+	results := make(map[string]float64)
+	allStats := []string{"STR", "INT", "DEX", "CON", "HP", "MP", "ATTACK", "DEFENSE", "CRIT_RATE"}
+	for _, stat := range allStats {
+		val, err := resolver.Resolve(stat, sCtx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve stat %s: %w", stat, err)
+		}
+		results[stat] = val
+	}
+
+	return results, nil
 }
 
-func (c *grpcStatClient) CalculateDamage(ctx context.Context, req CalculateDamageReq) (DamageResult, error) {
-	pbReq := &pb.CalculateDamageRequest{
-		Attacker: &pb.CombatStats{
-			Level:           req.Attacker.Level,
-			Attack:          req.Attacker.Attack,
-			Defense:         req.Attacker.Defense,
-			Dex:             req.Attacker.Dex,
-			CritRate:        req.Attacker.CritRate,
-			CritDamageBonus: req.Attacker.CritDamageBonus,
-			AccModifiers:    req.Attacker.AccModifiers,
-			DodgeModifiers:  req.Attacker.DodgeModifiers,
-		},
-		Defender: &pb.CombatStats{
-			Level:           req.Defender.Level,
-			Attack:          req.Defender.Attack,
-			Defense:         req.Defender.Defense,
-			Dex:             req.Defender.Dex,
-			CritRate:        req.Defender.CritRate,
-			CritDamageBonus: req.Defender.CritDamageBonus,
-			AccModifiers:    req.Defender.AccModifiers,
-			DodgeModifiers:  req.Defender.DodgeModifiers,
-		},
-		SkillMultiplier: req.SkillMultiplier,
-		SkillFlatDamage: req.SkillFlatDamage,
+func (c *embeddedStatClient) CalculateDamage(ctx context.Context, req CalculateDamageReq) (DamageResult, error) {
+	// 1. Calculate accuracy and check hit/miss
+	// Dodge Rate = (Defender DEX * 0.2 + Defender Dodge Modifiers) / (Attacker Level * 1.5)
+	dodgeRate := (req.Defender.Dex*0.2 + req.Defender.DodgeModifiers) / (float64(req.Attacker.Level) * 1.5)
+	baseHitChance := (1.0 - dodgeRate) + req.Attacker.AccModifiers
+
+	// Cap hit chance between 70% (0.70) and 99% (0.99)
+	hitChance := baseHitChance
+	if hitChance < 0.70 {
+		hitChance = 0.70
+	} else if hitChance > 0.99 {
+		hitChance = 0.99
 	}
 
-	resp, err := c.combatClient.CalculateDamage(ctx, pbReq)
-	if err != nil {
-		return DamageResult{}, fmt.Errorf("grpc calculate damage failed: %w", err)
+	// Roll for hit
+	hitRoll := c.rng.Float64()
+	if hitRoll >= hitChance {
+		return DamageResult{
+			IsHit:  false,
+			Damage: 0,
+			IsCrit: false,
+		}, nil
+	}
+
+	// 2. Calculate base damage
+	baseDmg := req.Attacker.Attack
+	if req.SkillMultiplier > 0.0 {
+		baseDmg = req.Attacker.Attack*req.SkillMultiplier + req.SkillFlatDamage
+	}
+
+	// Damage = max(1, Base - Defender Defense)
+	damage := baseDmg - req.Defender.Defense
+	if damage < 1.0 {
+		damage = 1.0
+	}
+
+	// 3. Roll critical strike
+	critRoll := c.rng.Float64() * 100.0
+	isCrit := critRoll < req.Attacker.CritRate
+	if isCrit {
+		damage = damage * 1.5 * (1.0 + req.Attacker.CritDamageBonus)
+	}
+
+	// 4. RNG Variance (±10%)
+	variance := 0.9 + c.rng.Float64()*0.2
+	finalDamage := math.Round(damage * variance)
+	if finalDamage < 1 {
+		finalDamage = 1
 	}
 
 	return DamageResult{
-		IsHit:  resp.IsHit,
-		Damage: resp.Damage,
-		IsCrit: resp.IsCrit,
+		IsHit:  true,
+		Damage: int32(finalDamage),
+		IsCrit: isCrit,
 	}, nil
 }
 
-func (c *grpcStatClient) Close() error {
-	return c.conn.Close()
+func (c *embeddedStatClient) Close() error {
+	return nil
 }
