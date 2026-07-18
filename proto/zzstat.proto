@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package zzstat;
+
+option go_package = "github.com/singoesdeep/zzrpg/backend/internal/statclient/pb";
+
+service StatService {
+  rpc CalculateStats (CalculateStatsRequest) returns (CalculateStatsResponse);
+}
+
+message StatModifier {
+  string stat = 1;         // "ATTACK", "DEFENSE", "HP", "CRIT_RATE", etc.
+  string operation = 2;    // "ADD", "MULTIPLY"
+  double value = 3;
+  int32 priority = 4;      // Execution priority (e.g. 10=Base, 20=Add, 30=Multiply)
+  string source = 5;       // "base", "equipment", "buff", "skill"
+  string source_id = 6;    // e.g. "dragon_sword_0", "blessing_of_dragon"
+}
+
+message CalculateStatsRequest {
+  int32 character_id = 1;
+  repeated StatModifier modifiers = 2;
+}
+
+message CalculateStatsResponse {
+  map<string, double> final_stats = 1; // e.g. {"HP": 5000, "ATTACK": 350, "DEFENSE": 200, "CRIT_RATE": 15}
+}

@@ -19,3 +19,8 @@ backend/bin/
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Rust Build Artifacts
+zzstat/target/
+Cargo.lock
+
