@@ -1,0 +1,160 @@
+package inventory
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strconv"
+
+	"github.com/singoesdeep/zzrpg/backend/internal/items"
+)
+
+type apiResponse struct {
+	Success bool        `json:"success"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   *apiError   `json:"error,omitempty"`
+}
+
+type apiError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type addTestItemRequest struct {
+	CharacterID      int32  `json:"character_id"`
+	ItemDefinitionID string `json:"item_definition_id"`
+	Quantity         int32  `json:"quantity"`
+}
+
+func GetInventoryHandler(service InventoryService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+
+		idStr := r.PathValue("id")
+		if idStr == "" {
+			idStr = r.URL.Query().Get("id")
+		}
+
+		charID, err := strconv.ParseInt(idStr, 10, 32)
+		if err != nil || charID <= 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_ID", "Invalid character ID")
+			return
+		}
+
+		items, err := service.GetInventory(ctx(r), int32(charID))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to load inventory")
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(apiResponse{
+			Success: true,
+			Data:    items,
+		})
+	}
+}
+
+func MoveItemHandler(service InventoryService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+
+		var req MoveRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body")
+			return
+		}
+
+		err := service.MoveItem(ctx(r), req.CharacterID, req.FromSlot, req.ToSlot)
+		if err != nil {
+			if errors.Is(err, ErrSlotOutOfBounds) || errors.Is(err, ErrInvalidEquipmentSlot) {
+				writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+				return
+			}
+			if errors.Is(err, ErrLevelRestricted) || errors.Is(err, ErrClassRestricted) {
+				writeError(w, http.StatusForbidden, "EQUIPMENT_RESTRICTED", err.Error())
+				return
+			}
+			if errors.Is(err, ErrItemNotFound) {
+				writeError(w, http.StatusNotFound, "ITEM_NOT_FOUND", err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(apiResponse{
+			Success: true,
+			Data:    map[string]interface{}{"refresh_stats": true},
+		})
+	}
+}
+
+func AddAdminItemHandler(service InventoryService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+
+		var req addTestItemRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body")
+			return
+		}
+
+		if req.Quantity <= 0 {
+			req.Quantity = 1
+		}
+
+		item := &InventoryItem{
+			CharacterID:      req.CharacterID,
+			ItemDefinitionID: req.ItemDefinitionID,
+			Quantity:         req.Quantity,
+			Durability:       100,
+			CustomModifiers:  []items.StatModifier{},
+		}
+
+		if err := service.AddItem(ctx(r), item); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
+			return
+		}
+
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(apiResponse{
+			Success: true,
+			Data:    item,
+		})
+	}
+}
+
+func ctx(r *http.Request) interface {
+	context.Context
+} {
+	return r.Context()
+}
+
+func writeError(w http.ResponseWriter, statusCode int, code, message string) {
+	w.WriteHeader(statusCode)
+	_ = json.NewEncoder(w).Encode(apiResponse{
+		Success: false,
+		Error: &apiError{
+			Code:    code,
+			Message: message,
+		},
+	})
+}

@@ -453,6 +453,120 @@
           "404": { "description": "Item not found" }
         }
       }
+    },
+    "/api/v1/characters/{id}/inventory": {
+      "get": {
+        "summary": "Get character inventory (bag and equipped items)",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "integer", "example": 12 },
+                          "character_id": { "type": "integer", "example": 1 },
+                          "slot_index": { "type": "integer", "example": 1000 },
+                          "item_definition_id": { "type": "string", "example": "dragon_sword_0" },
+                          "quantity": { "type": "integer", "example": 1 },
+                          "durability": { "type": "integer", "example": 100 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/inventory/move": {
+      "post": {
+        "summary": "Move or equip/unequip an item",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["character_id", "from_slot", "to_slot"],
+                "properties": {
+                  "character_id": { "type": "integer", "example": 1 },
+                  "from_slot": { "type": "integer", "example": 5 },
+                  "to_slot": { "type": "integer", "example": 1000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item moved or equipped successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "refresh_stats": { "type": "boolean", "example": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Slot index mismatch or out of bounds" },
+          "403": { "description": "Level or Class restriction prevents equipping" },
+          "404": { "description": "Item not found in from_slot" }
+        }
+      }
+    },
+    "/api/v1/admin/inventory/add": {
+      "post": {
+        "summary": "Admin: Spawn a new item in character bag",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["character_id", "item_definition_id"],
+                "properties": {
+                  "character_id": { "type": "integer", "example": 1 },
+                  "item_definition_id": { "type": "string", "example": "dragon_sword_0" },
+                  "quantity": { "type": "integer", "example": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Item spawned successfully" }
+        }
+      }
     }
   },
   "components": {
