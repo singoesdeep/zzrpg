@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
@@ -33,7 +35,17 @@ func main() {
 	}
 	defer db.Close()
 
-	// 4. Setup multiplexer / router
+	// Run database migrations
+	if err := db.RunMigrations(context.Background()); err != nil {
+		log.Error("Failed to run database migrations", "error", err)
+		os.Exit(1)
+	}
+
+	// 4. Initialize Auth components
+	userRepo := auth.NewUserRepository(db.Pool)
+	authService := auth.NewAuthService(userRepo, cfg.JWTSecret)
+
+	// 5. Setup multiplexer / router
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -51,6 +63,26 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"UP", "database":"OK"}`))
 	})
+
+	// Auth Endpoints
+	mux.HandleFunc("/api/v1/auth/register", auth.RegisterHandler(authService))
+	mux.HandleFunc("/api/v1/auth/login", auth.LoginHandler(authService))
+
+	// Protected test endpoint
+	mux.Handle("/api/v1/auth/me", auth.AuthMiddleware(cfg.JWTSecret)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		userID := auth.UserIDFromContext(r.Context())
+		username := auth.UsernameFromContext(r.Context())
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]interface{}{
+				"user_id":  userID,
+				"username": username,
+			},
+		})
+	})))
 
 	// 5. Initialize Server
 	srv := &http.Server{
