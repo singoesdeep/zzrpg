@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS characters (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(32) UNIQUE NOT NULL,
+    class_name VARCHAR(20) NOT NULL, -- "WARRIOR", "MAGE", "ASSASSIN", "SURA"
+    level INTEGER NOT NULL DEFAULT 1,
+    experience BIGINT NOT NULL DEFAULT 0,
+    gold BIGINT NOT NULL DEFAULT 0,
+    last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_characters_user_id ON characters(user_id);
+CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
+
+CREATE TABLE IF NOT EXISTS character_stats (
+    character_id INTEGER PRIMARY KEY REFERENCES characters(id) ON DELETE CASCADE,
+    base_stats JSONB NOT NULL, -- e.g., {"STR": 10, "INT": 10, "DEX": 10, "CON": 10}
+    derived_stats JSONB NOT NULL, -- Cache of final computed stats: {"HP": 500, "MP": 200, "ATTACK": 120, "DEFENSE": 50}
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

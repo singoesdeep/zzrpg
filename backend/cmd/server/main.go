@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
+	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
@@ -44,6 +45,10 @@ func main() {
 	// 4. Initialize Auth components
 	userRepo := auth.NewUserRepository(db.Pool)
 	authService := auth.NewAuthService(userRepo, cfg.JWTSecret)
+
+	// Initialize Character components
+	charRepo := character.NewCharacterRepository(db.Pool)
+	charService := character.NewCharacterService(charRepo)
 
 	// 5. Setup multiplexer / router
 	mux := http.NewServeMux()
@@ -83,6 +88,11 @@ func main() {
 			},
 		})
 	})))
+
+	// Character Endpoints (Protected by JWT)
+	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.CreateHandler(charService)))
+	mux.Handle("GET /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.ListHandler(charService)))
+	mux.Handle("GET /api/v1/characters/{id}", auth.AuthMiddleware(cfg.JWTSecret)(character.GetHandler(charService)))
 
 	// 5. Initialize Server
 	srv := &http.Server{
