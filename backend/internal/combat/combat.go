@@ -5,6 +5,8 @@ import (
 	"errors"
 
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
+	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
@@ -18,22 +20,23 @@ var (
 )
 
 type AttackRequest struct {
-	AttackerID      int64  `json:"attacker_id"`
-	DefenderID      int64  `json:"defender_id"`
-	SkillID         string `json:"skill_id,omitempty"`
+	AttackerID      int64   `json:"attacker_id"`
+	DefenderID      int64   `json:"defender_id"`
+	SkillID         string  `json:"skill_id,omitempty"`
 	SkillMultiplier float64 `json:"skill_multiplier,omitempty"`
 	SkillFlatDamage float64 `json:"skill_flat_damage,omitempty"`
 }
 
 type AttackResult struct {
-	AttackerID      int64   `json:"attacker_id"`
-	DefenderID      int64   `json:"defender_id"`
-	IsHit           bool    `json:"is_hit"`
-	Damage          int32   `json:"damage"`
-	IsCrit          bool    `json:"is_crit"`
-	DefenderHP      float64 `json:"defender_hp"`
-	DefenderMaxHP   float64 `json:"defender_max_hp"`
-	DefenderIsDead  bool    `json:"defender_is_dead"`
+	AttackerID     int64              `json:"attacker_id"`
+	DefenderID     int64              `json:"defender_id"`
+	IsHit          bool               `json:"is_hit"`
+	Damage         int32              `json:"damage"`
+	IsCrit         bool               `json:"is_crit"`
+	DefenderHP     float64            `json:"defender_hp"`
+	DefenderMaxHP  float64            `json:"defender_max_hp"`
+	DefenderIsDead bool               `json:"defender_is_dead"`
+	Loot           []loot.DroppedItem `json:"loot,omitempty"`
 }
 
 type CombatService interface {
@@ -41,10 +44,12 @@ type CombatService interface {
 }
 
 type combatService struct {
-	charService character.CharacterService
-	statClient  statclient.Client
-	registry    *socket.SessionRegistry
-	questSvc    quests.QuestService
+	charService  character.CharacterService
+	statClient   statclient.Client
+	registry     *socket.SessionRegistry
+	questSvc     quests.QuestService
+	lootSvc      loot.LootService
+	inventorySvc inventory.InventoryService
 }
 
 func NewCombatService(
@@ -52,12 +57,16 @@ func NewCombatService(
 	statClient statclient.Client,
 	registry *socket.SessionRegistry,
 	questSvc quests.QuestService,
+	lootSvc loot.LootService,
+	inventorySvc inventory.InventoryService,
 ) CombatService {
 	return &combatService{
-		charService: charService,
-		statClient:  statClient,
-		registry:    registry,
-		questSvc:    questSvc,
+		charService:  charService,
+		statClient:   statClient,
+		registry:     registry,
+		questSvc:     questSvc,
+		lootSvc:      lootSvc,
+		inventorySvc: inventorySvc,
 	}
 }
 
@@ -174,13 +183,39 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 	}
 
 	// 5. Trigger death progression (loot, quest progress) if defender died
+	var rolledLoot []loot.DroppedItem
 	if defenderIsDead {
+		var tableID string
 		if req.DefenderID == 9999 {
-			// Trigger quest target "wolf" kill or dummy kill
+			tableID = "dummy_drops"
 			_ = s.questSvc.UpdateQuestProgress(ctx, int32(req.AttackerID), "KILL_MOB", "wolf", 1)
 		} else {
-			// PvP kill or general player death
+			tableID = "player_drops" // or default PvP table
 			_ = s.questSvc.UpdateQuestProgress(ctx, int32(req.AttackerID), "KILL_MOB", "player", 1)
+		}
+
+		// Roll Loot drops!
+		if s.lootSvc != nil {
+			drops, err := s.lootSvc.RollLoot(ctx, tableID)
+			if err == nil {
+				rolledLoot = drops
+				// Process drops: add gold or items
+				for _, drop := range drops {
+					if drop.ItemDefinitionID == "gold" {
+						_, _, _ = s.charService.AddRewards(ctx, req.AttackerID, int64(drop.Quantity), 0)
+					} else {
+						if s.inventorySvc != nil {
+							invItem := &inventory.InventoryItem{
+								CharacterID:      int32(req.AttackerID),
+								ItemDefinitionID: drop.ItemDefinitionID,
+								Quantity:         drop.Quantity,
+								Durability:       100,
+							}
+							_ = s.inventorySvc.AddItem(ctx, invItem)
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -193,5 +228,6 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		DefenderHP:     defenderHP,
 		DefenderMaxHP:  defenderMaxHP,
 		DefenderIsDead: defenderIsDead,
+		Loot:           rolledLoot,
 	}, nil
 }

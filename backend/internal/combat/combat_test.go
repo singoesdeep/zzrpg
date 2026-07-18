@@ -105,7 +105,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 
 	questSvc := &mockQuestService{}
 
-	service := NewCombatService(charService, statClient, registry, questSvc)
+	service := NewCombatService(charService, statClient, registry, questSvc, nil, nil)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{

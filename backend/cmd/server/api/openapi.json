@@ -744,6 +744,49 @@
           "200": { "description": "Quest progress updated successfully" }
         }
       }
+    },
+    "/api/v1/admin/loot": {
+      "post": {
+        "summary": "Admin: Create a new loot table definition",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id"],
+                "properties": {
+                  "id": { "type": "string", "example": "dummy_drops" },
+                  "description": { "type": "string", "example": "Training dummy item drops" },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "item_definition_id": { "type": "string", "example": "dragon_sword_0" },
+                        "rate": { "type": "integer", "example": 1000 },
+                        "min": { "type": "integer", "example": 1 },
+                        "max": { "type": "integer", "example": 1 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Loot table created successfully" }
+        }
+      },
+      "get": {
+        "summary": "Get all loot table definitions",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of loot tables" }
+        }
+      }
     }
   },
   "components": {

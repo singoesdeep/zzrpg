@@ -18,6 +18,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
@@ -90,12 +91,16 @@ func main() {
 	questRepo := quests.NewQuestRepository(db.Pool)
 	questService := quests.NewQuestService(questRepo, charService, invService)
 
+	// Initialize Loot components
+	lootRepo := loot.NewLootRepository(db.Pool)
+	lootService := loot.NewLootService(lootRepo)
+
 	// Initialize WebSocket components
 	hub := socket.NewHub()
 	go hub.Run()
 
 	// Initialize Combat components
-	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), questService)
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), questService, lootService, invService)
 
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {
@@ -259,6 +264,10 @@ func main() {
 	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(cfg.JWTSecret)(quests.AcceptQuestHandler(questService)))
 	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.GetQuestLogHandler(questService)))
 	mux.Handle("POST /api/v1/admin/quests/progress", auth.AuthMiddleware(cfg.JWTSecret)(quests.UpdateQuestProgressHandler(questService)))
+
+	// Loot Endpoints (Protected by JWT)
+	mux.Handle("POST /api/v1/admin/loot", auth.AuthMiddleware(cfg.JWTSecret)(loot.CreateLootTableHandler(lootService)))
+	mux.Handle("GET /api/v1/admin/loot", auth.AuthMiddleware(cfg.JWTSecret)(loot.ListLootTablesHandler(lootService)))
 
 	// WebSocket Endpoint
 	mux.HandleFunc("/ws", socket.ServeWS(hub, cfg.JWTSecret, wsMsgHandler))
