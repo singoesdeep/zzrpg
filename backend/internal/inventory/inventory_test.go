@@ -95,6 +95,9 @@ func (m *mockCharacterService) RecalculateStats(ctx context.Context, id int64) e
 	return nil
 }
 func (m *mockCharacterService) SetEquipmentProvider(p character.EquipmentProvider) {}
+func (m *mockCharacterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
+	return false, 0, nil
+}
 
 func TestMoveAndEquipItem(t *testing.T) {
 	repo := newMockInventoryRepository()

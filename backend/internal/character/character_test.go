@@ -91,6 +91,16 @@ func (m *mockCharacterRepository) UpdateLastActive(ctx context.Context, charID i
 	return nil
 }
 
+func (m *mockCharacterRepository) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
+	c, ok := m.characters[charID]
+	if !ok {
+		return false, 0, ErrCharacterNotFound
+	}
+	c.Character.Gold += gold
+	c.Character.Experience += exp
+	return false, c.Character.Level, nil
+}
+
 func TestCreateCharacter(t *testing.T) {
 	repo := newMockCharacterRepository()
 	service := NewCharacterService(repo, nil, nil)

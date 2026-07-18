@@ -47,6 +47,7 @@ type CharacterRepository interface {
 	ListByUserID(ctx context.Context, userID int64) ([]Character, error)
 	UpdateStats(ctx context.Context, charID int64, derivedStats map[string]float64) error
 	UpdateLastActive(ctx context.Context, charID int64) error
+	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
 }
 
 type EquipmentModifier struct {

@@ -17,6 +17,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
@@ -82,6 +83,10 @@ func main() {
 
 	// Resolve circular startup reference by setting equipment provider
 	charService.SetEquipmentProvider(invService)
+
+	// Initialize Quest components
+	questRepo := quests.NewQuestRepository(db.Pool)
+	questService := quests.NewQuestService(questRepo, charService, invService)
 
 	// Subscribe to inventory events for stat recalculations
 	events.Global().Subscribe(events.EventItemEquipped, func(ctx context.Context, ev events.Event) {
@@ -162,6 +167,13 @@ func main() {
 	mux.Handle("GET /api/v1/characters/{id}/inventory", auth.AuthMiddleware(cfg.JWTSecret)(inventory.GetInventoryHandler(invService)))
 	mux.Handle("POST /api/v1/inventory/move", auth.AuthMiddleware(cfg.JWTSecret)(inventory.MoveItemHandler(invService)))
 	mux.Handle("POST /api/v1/admin/inventory/add", auth.AuthMiddleware(cfg.JWTSecret)(inventory.AddAdminItemHandler(invService)))
+
+	// Quest Endpoints (Protected by JWT)
+	mux.Handle("POST /api/v1/admin/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.CreateDefinitionHandler(questService)))
+	mux.Handle("GET /api/v1/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.ListDefinitionsHandler(questService)))
+	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(cfg.JWTSecret)(quests.AcceptQuestHandler(questService)))
+	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.GetQuestLogHandler(questService)))
+	mux.Handle("POST /api/v1/admin/quests/progress", auth.AuthMiddleware(cfg.JWTSecret)(quests.UpdateQuestProgressHandler(questService)))
 
 	// Swagger API Docs routes
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {

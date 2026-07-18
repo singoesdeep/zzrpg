@@ -13,6 +13,7 @@ type CharacterService interface {
 	ListByUserID(ctx context.Context, userID int64) ([]Character, error)
 	RecalculateStats(ctx context.Context, id int64) error
 	SetEquipmentProvider(p EquipmentProvider)
+	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
 }
 
 type characterService struct {
@@ -133,4 +134,18 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 
 	// 5. Save/Update derived stats cache in database
 	return s.repo.UpdateStats(ctx, charID, finalStats)
+}
+
+func (s *characterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
+	leveledUp, newLevel, err := s.repo.AddRewards(ctx, charID, gold, exp)
+	if err != nil {
+		return false, 0, err
+	}
+
+	// Recalculate stats if character leveled up (since base stats increased)
+	if leveledUp {
+		_ = s.RecalculateStats(ctx, charID)
+	}
+
+	return leveledUp, newLevel, nil
 }

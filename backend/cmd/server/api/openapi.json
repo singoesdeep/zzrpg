@@ -607,6 +607,143 @@
           "201": { "description": "Item spawned successfully" }
         }
       }
+    },
+    "/api/v1/admin/quests": {
+      "post": {
+        "summary": "Admin: Create a new quest definition",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "title"],
+                "properties": {
+                  "id": { "type": "string", "example": "wolf_slayer" },
+                  "title": { "type": "string", "example": "Wolf Slayer Quest" },
+                  "description": { "type": "string", "example": "Kill wolves and talk to Blacksmith" },
+                  "min_level": { "type": "integer", "example": 5 },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "type": { "type": "string", "example": "KILL_MOB" },
+                        "target": { "type": "string", "example": "wolf" },
+                        "count": { "type": "integer", "example": 3 }
+                      }
+                    }
+                  },
+                  "rewards": {
+                    "type": "object",
+                    "properties": {
+                      "gold": { "type": "integer", "example": 1000 },
+                      "experience": { "type": "integer", "example": 2500 },
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "item_definition_id": { "type": "string", "example": "red_potion_1" },
+                            "quantity": { "type": "integer", "example": 5 }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Quest definition created successfully" }
+        }
+      }
+    },
+    "/api/v1/quests": {
+      "get": {
+        "summary": "Get all available quest definitions",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of quest definitions" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/quests/accept": {
+      "post": {
+        "summary": "Accept a quest for character",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["quest_id"],
+                "properties": {
+                  "quest_id": { "type": "string", "example": "wolf_slayer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Quest accepted successfully" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}/quests": {
+      "get": {
+        "summary": "Get active and completed quests log for character",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Character quest log details" }
+        }
+      }
+    },
+    "/api/v1/admin/quests/progress": {
+      "post": {
+        "summary": "Admin/Dev: Manually increment quest progress for testing",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["character_id", "action_type", "target"],
+                "properties": {
+                  "character_id": { "type": "integer", "example": 1 },
+                  "action_type": { "type": "string", "example": "KILL_MOB" },
+                  "target": { "type": "string", "example": "wolf" },
+                  "amount": { "type": "integer", "example": 1 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Quest progress updated successfully" }
+        }
+      }
     }
   },
   "components": {

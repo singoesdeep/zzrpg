@@ -197,3 +197,92 @@ func (r *pgCharacterRepository) UpdateLastActive(ctx context.Context, charID int
 	}
 	return nil
 }
+
+func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, goldToAdd int64, expToAdd int64) (bool, int32, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Fetch current level, experience, gold
+	var level int32
+	var experience, gold int64
+	err = tx.QueryRow(ctx, "SELECT level, experience, gold FROM characters WHERE id = $1 FOR UPDATE", charID).
+		Scan(&level, &experience, &gold)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, 0, ErrCharacterNotFound
+		}
+		return false, 0, err
+	}
+
+	newGold := gold + goldToAdd
+	newExp := experience + expToAdd
+	newLevel := level
+	leveledUp := false
+
+	// Simple level-up algorithm: level N requires N * N * 100 EXP
+	for {
+		reqExp := int64(newLevel) * int64(newLevel) * 100
+		if newExp >= reqExp {
+			newExp -= reqExp
+			newLevel++
+			leveledUp = true
+		} else {
+			break
+		}
+	}
+
+	// Update characters table
+	_, err = tx.Exec(ctx, `
+		UPDATE characters
+		SET level = $1, experience = $2, gold = $3, updated_at = NOW()
+		WHERE id = $4
+	`, newLevel, newExp, newGold, charID)
+	if err != nil {
+		return false, 0, err
+	}
+
+	if leveledUp {
+		// Fetch current base stats
+		var baseBytes []byte
+		err = tx.QueryRow(ctx, "SELECT base_stats FROM character_stats WHERE character_id = $1 FOR UPDATE", charID).Scan(&baseBytes)
+		if err != nil {
+			return false, 0, err
+		}
+
+		var baseStats map[string]float64
+		if err := json.Unmarshal(baseBytes, &baseStats); err != nil {
+			return false, 0, err
+		}
+
+		// Stat gains: +2 STR, +2 INT, +2 DEX, +2 CON for each level gained
+		lvlsGained := newLevel - level
+		baseStats["STR"] += float64(lvlsGained * 2)
+		baseStats["INT"] += float64(lvlsGained * 2)
+		baseStats["DEX"] += float64(lvlsGained * 2)
+		baseStats["CON"] += float64(lvlsGained * 2)
+
+		newBaseBytes, err := json.Marshal(baseStats)
+		if err != nil {
+			return false, 0, err
+		}
+
+		_, err = tx.Exec(ctx, `
+			UPDATE character_stats
+			SET base_stats = $1, updated_at = NOW()
+			WHERE character_id = $2
+		`, newBaseBytes, charID)
+		if err != nil {
+			return false, 0, err
+		}
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		return false, 0, err
+	}
+
+	return leveledUp, newLevel, nil
+}
