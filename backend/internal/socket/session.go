@@ -97,3 +97,17 @@ func (r *SessionRegistry) Heal(charID int64, amount float64) (float64, bool) {
 
 	return sess.CurrentHP, true
 }
+
+func (r *SessionRegistry) Revive(charID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sess, exists := r.sessions[charID]
+	if !exists {
+		return false
+	}
+
+	sess.CurrentHP = sess.MaxHP
+	sess.IsDead = false
+	return true
+}
