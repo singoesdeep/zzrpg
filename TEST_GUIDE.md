@@ -13,18 +13,13 @@ Run the helper script from the project root to start PostgreSQL and Redis:
 
 ---
 
-## Step 2: Start the Rust zzstat gRPC Service
+## Step 2: Build the Rust zzstat shared library
 
-Open a new terminal, navigate to the `zzstat/` directory, and run:
+Open a terminal and compile the Rust core FFI bindings dynamically linked shared library:
 ```bash
-cd zzstat
-cargo run
+cargo build --release -p zzstat-ffi
 ```
-You should see:
-```
-Rust zzstat service listening on [::1]:50051
-```
-Keep this terminal open.
+Ensure the library is built at `zzstat/target/release/libzzstat_ffi.so`. The Go backend client will load this dynamically at runtime.
 
 ---
 

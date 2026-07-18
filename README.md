@@ -1,12 +1,12 @@
 # zzrpg - High-Performance MMORPG Backend Monolith
 
-**zzrpg** is a data-driven, high-performance MMORPG backend architecture consisting of a Go monolith backend and a Rust `zzstat` gRPC microservice for calculations, utilizing PostgreSQL for persistent storage, Redis for caching, and gorilla/websocket for real-time game loops.
+**zzrpg** is a data-driven, high-performance MMORPG backend architecture consisting of a Go monolith backend with an embedded Rust `zzstat` core engine for in-process calculations, utilizing PostgreSQL for persistent storage, Redis for caching, and gorilla/websocket for real-time game loops.
 
 ---
 
 ## Technical Stack
 - **Go Backend**: Core monolith implementing authentication, database management, quests, inventory, loot tables, and the WebSocket gateway.
-- **Rust zzstat**: High-performance gRPC service implementing derived stats formulas, dodge rates, critical rolls, and combat damage variance calculations.
+- **Rust zzstat**: High-performance core engine embedded in Go via FFI bindings implementing derived stats formulas, dodge rates, critical rolls, and combat damage variance calculations.
 - **PostgreSQL**: Relational database with dynamic constraints and JSONB fields for data-driven designs.
 - **Redis**: Fast caching store for active character sessions.
 - **Gorilla WebSocket**: WebSockets handler with thread-safe write loops, connection overrides, and live event hubs.
@@ -23,10 +23,10 @@
   - `backend/internal/loot/`: Probability drops, drop configuration managers.
   - `backend/internal/quests/`: Quest log registers, killing and npc progress hooks.
   - `backend/internal/socket/`: WebSockets connection hubs, read/write loops, auth validations.
-  - `backend/internal/statclient/`: Go client adapter calling the Rust gRPC server.
+  - `backend/internal/statclient/`: Go client calling the Rust shared library (`libzzstat_ffi.so`) via FFI bindings.
   - `backend/tests/`: End-to-end integration test suites.
-- `zzstat/`: Rust gRPC microservice.
-  - `zzstat/src/main.rs`: gRPC server endpoints for stats and damage calculations.
+- `zzstat/`: Rust core calculation engine.
+  - `zzstat/crates/zzstat-ffi/`: FFI bindings shared library exports.
 - `proto/`: Protobuf service definitions.
 - `scripts/`: Infrastructure orchestration utilities.
 
@@ -37,7 +37,7 @@
 2. **Data-Driven Items**: Items defined dynamically in the database via JSONB modifier fields (`item_definitions`).
 3. **Grid Inventory Slots**: Custom constraints for bag storage (`0..99`) and active equipment (`1000..1005`).
 4. **Quest Engine**: Dynamic progression triggers (`KILL_MOB`, `TALK_NPC`) with gold/exp rewards and Level-up triggers (+2 base stats).
-5. **Rust Combat Service**: gRPC accuracy checks (DEX vs Dodge), critical rolls, and damage variance ($\pm10\%$) calculations.
+5. **Rust Combat Core**: In-process accuracy checks (DEX vs Dodge), critical rolls, and damage variance ($\pm10\%$) calculations via Go-Rust FFI.
 6. **Real-time WebSockets**: In-memory health session registries (`SessionRegistry`), global chats, and combat damage broadcasts.
 7. **Loot Table Rollers**: Canavarlar/mankenler öldüğünde JSONB olasılık tablolarına göre ganimet kazanılması.
 8. **Idle Progression**: STR/INT scaled offline gold/exp accumulation and offline loot rolling.

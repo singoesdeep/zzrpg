@@ -4,7 +4,7 @@ This document outlines the high-level system architecture, modular monolith desi
 
 ## 1. System Architecture Diagram
 
-Below is the high-level architecture of `zzrpg`. The architecture is designed as a **Modular Monolith** for the Go backend, coupled with a specialized, highly optimized **Rust zzstat service** for stat computation.
+Below is the high-level architecture of `zzrpg`. The architecture is designed as a **Modular Monolith** for the Go backend, coupled with a specialized, highly optimized **Rust zzstat core engine** embedded directly via in-process FFI bindings for stat computation.
 
 ```mermaid
 graph TD
@@ -33,14 +33,14 @@ graph TD
         Database[Database Pkg - pgx]
         RedisClient[Redis Client - Session/Cache/Locks]
         WS[WebSocket Manager]
-        StatClient[Stat gRPC Client]
+        StatClient[Stat Client - FFI]
         EventBus[In-Memory Event Bus]
     end
 
     %% External Infrastructure
     DB[(PostgreSQL Database)]
     Redis[(Redis Cache & Broker)]
-    RustStat[Rust zzstat gRPC Service]
+    RustStat[Rust zzstat Core Library]
 
     %% Connections
     Browser <-->|HTTPS / WSS| API
@@ -66,7 +66,7 @@ graph TD
     
     Database <--> DB
     RedisClient <--> Redis
-    StatClient <-->|gRPC| RustStat
+    StatClient <-->|FFI In-Process Calls| RustStat
 ```
 
 ---
@@ -92,7 +92,7 @@ backend/
 │   ├── guild/                # Guild creation, ranks, bank, guild stat bonuses
 │   ├── economy/              # Gold/currencies, market transaction logging
 │   ├── loot/                 # Probability-based loot tables, mob drop mechanics
-│   ├── statclient/           # gRPC adapter to communicate with Rust zzstat service
+│   ├── statclient/           # In-process FFI client loading and executing Rust zzstat core
 │   ├── database/             # PostgreSQL connection pool configuration, migration runner
 │   ├── events/               # Event publisher/subscriber for decoupling modules
 │   └── websocket/            # Connection manager, hub, read/write pumps, game notifications
@@ -116,5 +116,5 @@ backend/
 - **Primary Language**: Go (1.23+) for fast performance, low memory footprint, concurrency primitives, and simple syntax.
 - **Database**: PostgreSQL (16+) using `pgx` as the driver. Heavy usage of JSONB columns to achieve a schema-less, data-driven game design without losing transactional integrity.
 - **Cache & Message Broker**: Redis (7+) for tracking player online status, session storage, distributed locking (combat/trade locks), and WebSocket event pub/sub.
-- **Stat Service**: Rust-based `zzstat` communicating with Go via gRPC (`protobuf`) or high-performance REST, optimizing computation of nested multipliers.
+- **Stat Service**: Rust-based `zzstat` core engine compiled as a shared library (`libzzstat_ffi.so`) and embedded directly into Go using `purego` FFI bindings, eliminating network overhead.
 - **WebSockets**: Standard or `gorilla/websocket` implementation to push real-time events (combat logs, chat, items gained) to the browser.

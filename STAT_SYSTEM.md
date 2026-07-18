@@ -1,6 +1,6 @@
-# Stat System Design: Rust zzstat Service Integration
+# Stat System Design: Embedded Rust zzstat Engine FFI Integration
 
-All stat calculations for the game are outsourced to the Rust `zzstat` service. The Go backend does not perform stat math itself. It acts as an orchestrator that gathers active modifiers, passes them to Rust, and stores/caches the response.
+All stat calculations for the game are outsourced to the embedded Rust `zzstat` library. The Go backend does not perform stat math itself. It acts as an orchestrator that gathers active modifiers, registers them to the in-process resolver, and caches the resolved values.
 
 ---
 
@@ -16,7 +16,7 @@ All stat calculations for the game are outsourced to the Rust `zzstat` service. 
 [Format payload]          (Construct StatModifier list with Priority & Source)
         │
         ▼
-[gRPC: CalculateStats]   ───(Go Client)───► [Rust zzstat service]
+[FFI: In-Process Calls]  ───(Go Client)───► [Embedded Rust Core]
                                                 │
                                                 ├── Group by Stat Type
                                                 ├── Order by Priority (0 -> Base, 1 -> Add, 2 -> Multiply)
@@ -54,7 +54,7 @@ When multiple effects modifying the same stat are active, Rust applies these sta
 
 ## 4. Stat Formulas (Data-Driven Derived Stats)
 
-To keep calculations completely decoupled, Rust zzstat uses standard MMORPG derived formulas. 
+To keep calculations completely decoupled, the Go client configures the embedded zzstat engine with standard MMORPG derived formulas. 
 The input consists of Base Stats: `STR` (Strength), `INT` (Intelligence), `DEX` (Dexterity), `CON` (Constitution/Vitality).
 
 1. **HP Calculation**:

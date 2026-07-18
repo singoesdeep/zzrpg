@@ -24,11 +24,11 @@ This document details the development milestones and roadmap for building the mo
 - Add initial `character_stats` base values setup during character creation.
 - Add repository tests for database state persistence.
 
-#### Week 4: Rust zzstat gRPC Integration
-- Define `proto/zzstat.proto` for character calculations.
-- Create Go gRPC client adapter (`statclient`) matching the `Client` interface.
-- Setup a basic mock server for tests.
-- Setup the Rust zzstat service repository skeleton, compile gRPC stub, and handle basic calculations.
+#### Week 4: Rust zzstat Core FFI Integration
+- Expose Rust core shared library exports (`libzzstat_ffi.so`).
+- Create Go FFI bindings client (`statclient`) loading the shared library via `purego`.
+- Configure stat client with formula registration DSL mappings.
+- Implement in-process derived stats and damage calculation functions.
 
 ---
 
@@ -48,7 +48,7 @@ This document details the development milestones and roadmap for building the mo
 
 #### Week 7: Dynamic Stat Computations
 - Build event subscriber that listens to `inventory.ItemEquipped` or `inventory.ItemUnequipped` events.
-- On event: gather character base stats, all active equipment modifiers, send payload to Rust `zzstat` gRPC service, and update `character_stats.derived_stats` cache.
+- On event: gather character base stats, all active equipment modifiers, compute final stats in-process via the embedded Rust `zzstat` engine, and update `character_stats.derived_stats` cache.
 - Expose `/api/v1/characters/:id/stats` to query current final stats.
 
 #### Week 8: Quest Engine & Progression

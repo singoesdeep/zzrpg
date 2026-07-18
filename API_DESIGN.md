@@ -132,35 +132,29 @@ Protected by `Role: ADMIN` JWT verification. This is used by the designer consol
 
 ---
 
-## 4. Go Backend -> Rust zzstat gRPC Protocol
+## 4. Go Backend -> Rust zzstat FFI Binding Interface
 
-Protobuf schema used to query character stats calculations.
+Instead of a network-based gRPC protocol, stats calculations are done in-process. The Go monolith loads the Rust core shared library (`libzzstat_ffi.so`) at startup using `purego` and communicates directly via memory-safe C FFI bindings.
 
-```protobuf
-syntax = "proto3";
-package zzstat;
-option go_package = "internal/statclient/pb";
+### Core FFI Functions Exposed by Rust Core
+The Go binding loads and exposes the following symbols from the Rust FFI library:
 
-service StatService {
-  rpc CalculateStats (CalculateStatsRequest) returns (CalculateStatsResponse);
-}
+```go
+// Resolver creation & deletion
+zzstat_resolver_create() uintptr
+zzstat_resolver_free(resolver uintptr)
 
-message StatModifier {
-  string stat = 1;         // "ATTACK", "DEFENSE", "HP", "CRIT_RATE", etc.
-  string operation = 2;    // "ADD", "MULTIPLY"
-  double value = 3;
-  int32 priority = 4;      // Execution priority (higher calculated first)
-  string source = 5;       // "base", "equipment", "buff", "skill"
-  string source_id = 6;    // "dragon_sword_0", "blessing_of_dragon"
-}
+// Context creation & deletion
+zzstat_context_create() uintptr
+zzstat_context_free(ctx uintptr)
 
-message CalculateStatsRequest {
-  int32 character_id = 1;
-  repeated StatModifier modifiers = 2;
-}
+// Registering base values and modifiers
+zzstat_resolver_register_constant_source(resolver uintptr, statID *byte, value float64) int32
+zzstat_resolver_register_scaling_transform(resolver uintptr, statID *byte, phase byte, rule byte, dependency *byte, scaleFactor float64) int32
+zzstat_resolver_register_multiplicative_transform(resolver uintptr, statID *byte, phase byte, rule byte, value float64) int32
 
-message CalculateStatsResponse {
-  map<string, double> final_stats = 1; // {"HP": 5000, "ATTACK": 350, "DEFENSE": 200, ...}
-}
+// Resolving calculations
+zzstat_resolver_resolve(resolver uintptr, statID *byte, ctx uintptr, outValue *float64) int32
 ```
-Using gRPC ensures highly efficient serialization and minimal overhead for continuous battle stat validations.
+
+Using in-process FFI calls completely eliminates network latency and serialization/deserialization overhead (gRPC/JSON), making battle-stat recalculations and damage computations execution-speed bound.
