@@ -1,0 +1,56 @@
+package socket
+
+import (
+	"log"
+	"net/http"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/singoesdeep/zzrpg/backend/internal/auth"
+)
+
+func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage)) http.HandlerFunc {
+	// Configure upgrader to allow all origins in development
+	upgrader.CheckOrigin = func(r *http.Request) bool {
+		return true
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenStr := r.URL.Query().Get("token")
+		if tokenStr == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Validate JWT Token
+		claims := &auth.Claims{}
+		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+			return []byte(jwtSecret), nil
+		})
+
+		if err != nil || !token.Valid {
+			http.Error(w, "UnauthorizedClaim", http.StatusUnauthorized)
+			return
+		}
+
+		// Upgrade to websocket
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("failed to upgrade connection: %v", err)
+			return
+		}
+
+		client := &Client{
+			Hub:      hub,
+			Conn:     conn,
+			Send:     make(chan []byte, 256),
+			UserID:   claims.UserID,
+			Username: claims.Username,
+		}
+
+		client.Hub.Register <- client
+
+		// Start reader and writer loops in separate goroutines
+		go client.WritePump()
+		go client.ReadPump(msgHandler)
+	}
+}

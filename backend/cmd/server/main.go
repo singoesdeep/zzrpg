@@ -18,6 +18,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
+	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
@@ -87,6 +88,44 @@ func main() {
 	// Initialize Quest components
 	questRepo := quests.NewQuestRepository(db.Pool)
 	questService := quests.NewQuestService(questRepo, charService, invService)
+
+	// Initialize WebSocket components
+	hub := socket.NewHub()
+	go hub.Run()
+
+	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
+		switch msg.Type {
+		case "CHAT":
+			var payload socket.ChatPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				return
+			}
+			broadMsg, _ := json.Marshal(map[string]interface{}{
+				"type": "CHAT",
+				"payload": map[string]interface{}{
+					"username": client.Username,
+					"message":  payload.Message,
+				},
+			})
+			hub.Broadcast <- broadMsg
+
+		case "SELECT_CHARACTER":
+			var payload socket.SelectCharPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				return
+			}
+			hub.AssociateCharacter(client, payload.CharacterID)
+
+			ack, _ := json.Marshal(map[string]interface{}{
+				"type": "SELECT_CHARACTER_ACK",
+				"payload": map[string]interface{}{
+					"character_id": payload.CharacterID,
+					"status":       "ACTIVE",
+				},
+			})
+			client.Send <- ack
+		}
+	}
 
 	// Subscribe to inventory events for stat recalculations
 	events.Global().Subscribe(events.EventItemEquipped, func(ctx context.Context, ev events.Event) {
@@ -174,6 +213,9 @@ func main() {
 	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(cfg.JWTSecret)(quests.AcceptQuestHandler(questService)))
 	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.GetQuestLogHandler(questService)))
 	mux.Handle("POST /api/v1/admin/quests/progress", auth.AuthMiddleware(cfg.JWTSecret)(quests.UpdateQuestProgressHandler(questService)))
+
+	// WebSocket Endpoint
+	mux.HandleFunc("/ws", socket.ServeWS(hub, cfg.JWTSecret, wsMsgHandler))
 
 	// Swagger API Docs routes
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
