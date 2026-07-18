@@ -1,0 +1,322 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "zzrpg Backend API",
+    "description": "Modern, scalable browser-based online RPG backend API documentation.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Check API and Database Health",
+        "responses": {
+          "200": {
+            "description": "System is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "UP" },
+                    "database": { "type": "string", "example": "OK" }
+                  }
+                }
+              }
+            }
+          },
+          "530": {
+            "description": "Database is unreachable"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register a new user account",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "email", "password"],
+                "properties": {
+                  "username": { "type": "string", "example": "singo" },
+                  "email": { "type": "string", "example": "singo@test.com" },
+                  "password": { "type": "string", "example": "password123" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": { "type": "integer", "example": 1 },
+                        "username": { "type": "string", "example": "singo" },
+                        "email": { "type": "string", "example": "singo@test.com" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation failed / Invalid request" },
+          "409": { "description": "Username or email already exists" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "Log in and obtain a JWT Token",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string", "example": "singo" },
+                  "password": { "type": "string", "example": "password123" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "token": { "type": "string", "example": "eyJhbGciOiJIUzI1Ni..." },
+                        "expires_in": { "type": "integer", "example": 86400 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "summary": "Get authenticated user profile details",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "User profile info",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "user_id": { "type": "integer", "example": 1 },
+                        "username": { "type": "string", "example": "singo" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized / Missing or invalid token" }
+        }
+      }
+    },
+    "/api/v1/characters": {
+      "get": {
+        "summary": "List all characters owned by the user",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of characters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "integer", "example": 1 },
+                          "user_id": { "type": "integer", "example": 1 },
+                          "name": { "type": "string", "example": "SavasciKral" },
+                          "class_name": { "type": "string", "example": "WARRIOR" },
+                          "level": { "type": "integer", "example": 1 },
+                          "experience": { "type": "integer", "example": 0 },
+                          "gold": { "type": "integer", "example": 0 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        }
+      },
+      "post": {
+        "summary": "Create a new character",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "class_name"],
+                "properties": {
+                  "name": { "type": "string", "example": "SavasciKral" },
+                  "class_name": { "type": "string", "example": "WARRIOR" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Character created successfully with initial base and derived stats",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer", "example": 1 },
+                        "name": { "type": "string", "example": "SavasciKral" },
+                        "class_name": { "type": "string", "example": "WARRIOR" },
+                        "level": { "type": "integer", "example": 1 },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "base_stats": {
+                              "type": "object",
+                              "properties": {
+                                "STR": { "type": "number", "example": 15 },
+                                "CON": { "type": "number", "example": 15 },
+                                "INT": { "type": "number", "example": 5 },
+                                "DEX": { "type": "number", "example": 10 }
+                              }
+                            },
+                            "derived_stats": {
+                              "type": "object",
+                              "properties": {
+                                "HP": { "type": "number", "example": 225 },
+                                "MP": { "type": "number", "example": 50 },
+                                "ATTACK": { "type": "number", "example": 30 },
+                                "DEFENSE": { "type": "number", "example": 15 },
+                                "CRIT_RATE": { "type": "number", "example": 5 }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation failed / Invalid class name" },
+          "401": { "description": "Unauthorized" },
+          "403": { "description": "Character limit reached (Max 4)" },
+          "409": { "description": "Character name already taken" }
+        }
+      }
+    },
+    "/api/v1/characters/{id}": {
+      "get": {
+        "summary": "Get character details and calculated stats",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" },
+            "description": "Character ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Character details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer", "example": 1 },
+                        "name": { "type": "string", "example": "SavasciKral" },
+                        "class_name": { "type": "string", "example": "WARRIOR" },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "base_stats": { "type": "object" },
+                            "derived_stats": { "type": "object" }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "404": { "description": "Character not found" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  }
+}

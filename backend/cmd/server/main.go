@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -16,6 +17,9 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
+
+//go:embed api/*
+var apiFS embed.FS
 
 func main() {
 	// 1. Load configuration
@@ -93,6 +97,29 @@ func main() {
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.CreateHandler(charService)))
 	mux.Handle("GET /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.ListHandler(charService)))
 	mux.Handle("GET /api/v1/characters/{id}", auth.AuthMiddleware(cfg.JWTSecret)(character.GetHandler(charService)))
+
+	// Swagger API Docs routes
+	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		data, err := apiFS.ReadFile("api/openapi.json")
+		if err != nil {
+			log.Error("Failed to read openapi.json", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(data)
+	})
+
+	mux.HandleFunc("GET /swagger", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		data, err := apiFS.ReadFile("api/swagger.html")
+		if err != nil {
+			log.Error("Failed to read swagger.html", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(data)
+	})
 
 	// 5. Initialize Server
 	srv := &http.Server{
