@@ -12,6 +12,7 @@ type InventoryService interface {
 	MoveItem(ctx context.Context, charID int32, fromSlot, toSlot int32) error
 	GetInventory(ctx context.Context, charID int32) ([]InventoryItem, error)
 	AddItem(ctx context.Context, item *InventoryItem) error
+	GetEquippedModifiers(ctx context.Context, charID int32) ([]character.EquipmentModifier, error)
 }
 
 type inventoryService struct {
@@ -214,4 +215,38 @@ func isValidSlot(slot int32) bool {
 
 func isEquipmentSlot(slot int32) bool {
 	return slot >= WeaponSlot && slot <= AccessorySlot
+}
+
+func (s *inventoryService) GetEquippedModifiers(ctx context.Context, charID int32) ([]character.EquipmentModifier, error) {
+	itemsList, err := s.repo.ListByCharacter(ctx, charID)
+	if err != nil {
+		return nil, err
+	}
+
+	var mods []character.EquipmentModifier
+	for _, it := range itemsList {
+		if isEquipmentSlot(it.SlotIndex) && it.ItemDetails != nil {
+			// Add base modifiers of the item
+			for _, m := range it.ItemDetails.StatsModifiers {
+				mods = append(mods, character.EquipmentModifier{
+					Stat:      m.Stat,
+					Operation: m.Operation,
+					Value:     m.Value,
+					Priority:  m.Priority,
+					SourceID:  it.ItemDefinitionID,
+				})
+			}
+			// Add custom modifiers (random bonuses)
+			for _, m := range it.CustomModifiers {
+				mods = append(mods, character.EquipmentModifier{
+					Stat:      m.Stat,
+					Operation: m.Operation,
+					Value:     m.Value,
+					Priority:  m.Priority,
+					SourceID:  it.ItemDefinitionID + "_custom",
+				})
+			}
+		}
+	}
+	return mods, nil
 }

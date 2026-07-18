@@ -91,6 +91,10 @@ func (m *mockCharacterService) GetByID(ctx context.Context, id int64) (*characte
 func (m *mockCharacterService) ListByUserID(ctx context.Context, userID int64) ([]character.Character, error) {
 	return nil, nil
 }
+func (m *mockCharacterService) RecalculateStats(ctx context.Context, id int64) error {
+	return nil
+}
+func (m *mockCharacterService) SetEquipmentProvider(p character.EquipmentProvider) {}
 
 func TestMoveAndEquipItem(t *testing.T) {
 	repo := newMockInventoryRepository()

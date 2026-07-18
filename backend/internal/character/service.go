@@ -3,20 +3,34 @@ package character
 import (
 	"context"
 	"strings"
+
+	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
 
 type CharacterService interface {
 	Create(ctx context.Context, userID int64, name, className string) (*CharacterWithStats, error)
 	GetByID(ctx context.Context, id int64) (*CharacterWithStats, error)
 	ListByUserID(ctx context.Context, userID int64) ([]Character, error)
+	RecalculateStats(ctx context.Context, id int64) error
+	SetEquipmentProvider(p EquipmentProvider)
 }
 
 type characterService struct {
-	repo CharacterRepository
+	repo          CharacterRepository
+	statClient    statclient.Client
+	equipProvider EquipmentProvider
 }
 
-func NewCharacterService(repo CharacterRepository) CharacterService {
-	return &characterService{repo: repo}
+func NewCharacterService(repo CharacterRepository, statClient statclient.Client, equipProvider EquipmentProvider) CharacterService {
+	return &characterService{
+		repo:          repo,
+		statClient:    statClient,
+		equipProvider: equipProvider,
+	}
+}
+
+func (s *characterService) SetEquipmentProvider(p EquipmentProvider) {
+	s.equipProvider = p
 }
 
 func (s *characterService) Create(ctx context.Context, userID int64, name, className string) (*CharacterWithStats, error) {
@@ -65,4 +79,58 @@ func (s *characterService) GetByID(ctx context.Context, id int64) (*CharacterWit
 
 func (s *characterService) ListByUserID(ctx context.Context, userID int64) ([]Character, error) {
 	return s.repo.ListByUserID(ctx, userID)
+}
+
+func (s *characterService) RecalculateStats(ctx context.Context, charID int64) error {
+	// 1. Fetch character details and current base stats
+	charWithStats, err := s.repo.GetByID(ctx, charID)
+	if err != nil {
+		return err
+	}
+
+	// 2. Fetch equipped items modifiers from equipment provider
+	var eqModifiers []statclient.Modifier
+	if s.equipProvider != nil {
+		eqMods, err := s.equipProvider.GetEquippedModifiers(ctx, int32(charID))
+		if err != nil {
+			return err
+		}
+		for _, m := range eqMods {
+			eqModifiers = append(eqModifiers, statclient.Modifier{
+				Stat:      m.Stat,
+				Operation: m.Operation,
+				Value:     m.Value,
+				Priority:  m.Priority,
+				SourceID:  m.SourceID,
+			})
+		}
+	}
+
+	// 3. Assemble character state for statclient gRPC call
+	state := statclient.CharacterState{
+		CharacterID: int32(charID),
+		BaseStats:   charWithStats.Stats.BaseStats,
+		Equipment:   eqModifiers,
+	}
+
+	// 4. Call gRPC service (or fallback if statClient is nil)
+	var finalStats map[string]float64
+	if s.statClient != nil {
+		finalStats, err = s.statClient.Calculate(ctx, state)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Mock fallback if gRPC is not available (mostly in tests or local fallback)
+		finalStats = map[string]float64{
+			"HP":        charWithStats.Stats.BaseStats["CON"] * 15,
+			"MP":        charWithStats.Stats.BaseStats["INT"] * 10,
+			"ATTACK":    charWithStats.Stats.BaseStats["STR"] * 2,
+			"DEFENSE":   charWithStats.Stats.BaseStats["CON"] * 1,
+			"CRIT_RATE": 5,
+		}
+	}
+
+	// 5. Save/Update derived stats cache in database
+	return s.repo.UpdateStats(ctx, charID, finalStats)
 }

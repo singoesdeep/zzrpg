@@ -93,7 +93,7 @@ func (m *mockCharacterRepository) UpdateLastActive(ctx context.Context, charID i
 
 func TestCreateCharacter(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo)
+	service := NewCharacterService(repo, nil, nil)
 
 	// 1. Success case: Warrior
 	char, err := service.Create(context.Background(), 100, "WarriorGod", "WARRIOR")
@@ -142,7 +142,7 @@ func TestCreateCharacter(t *testing.T) {
 
 func TestCharacterLimit(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo)
+	service := NewCharacterService(repo, nil, nil)
 
 	// Create 4 characters successfully
 	for i := 1; i <= 4; i++ {

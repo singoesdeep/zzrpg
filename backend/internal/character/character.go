@@ -48,3 +48,15 @@ type CharacterRepository interface {
 	UpdateStats(ctx context.Context, charID int64, derivedStats map[string]float64) error
 	UpdateLastActive(ctx context.Context, charID int64) error
 }
+
+type EquipmentModifier struct {
+	Stat      string
+	Operation string
+	Value     float64
+	Priority  int32
+	SourceID  string
+}
+
+type EquipmentProvider interface {
+	GetEquippedModifiers(ctx context.Context, charID int32) ([]EquipmentModifier, error)
+}

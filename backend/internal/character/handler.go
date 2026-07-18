@@ -140,6 +140,48 @@ func GetHandler(service CharacterService) http.HandlerFunc {
 	}
 }
 
+func GetStatsHandler(service CharacterService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+
+		idStr := r.PathValue("id")
+		if idStr == "" {
+			idStr = r.URL.Query().Get("id")
+		}
+
+		charID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil || charID <= 0 {
+			writeError(w, http.StatusBadRequest, "INVALID_ID", "Invalid character ID")
+			return
+		}
+
+		char, err := service.GetByID(r.Context(), charID)
+		if err != nil {
+			if errors.Is(err, ErrCharacterNotFound) {
+				writeError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to retrieve stats")
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(apiResponse{
+			Success: true,
+			Data: map[string]interface{}{
+				"character_id":  char.ID,
+				"base_stats":    char.Stats.BaseStats,
+				"derived_stats": char.Stats.DerivedStats,
+			},
+		})
+	}
+}
+
 func writeError(w http.ResponseWriter, statusCode int, code, message string) {
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(apiResponse{

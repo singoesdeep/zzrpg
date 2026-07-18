@@ -17,6 +17,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
@@ -53,9 +54,23 @@ func main() {
 	userRepo := auth.NewUserRepository(db.Pool)
 	authService := auth.NewAuthService(userRepo, cfg.JWTSecret)
 
-	// Initialize Character components
+	// Initialize statclient gRPC connection
+	statClient, err := statclient.NewClient(cfg.ZzstatGRPCURL)
+	if err != nil {
+		log.Warn("Failed to connect to Rust zzstat service. Stat calculations will use fallback.", "error", err)
+	} else {
+		log.Info("Successfully initialized gRPC statclient connecting to Rust zzstat service")
+		// Close connection on server shutdown
+		defer func() {
+			if err := statClient.Close(); err != nil {
+				log.Error("Failed to close gRPC statclient connection", "error", err)
+			}
+		}()
+	}
+
+	// Initialize Character components (inject statClient, pass nil for equipProvider temporarily)
 	charRepo := character.NewCharacterRepository(db.Pool)
-	charService := character.NewCharacterService(charRepo)
+	charService := character.NewCharacterService(charRepo, statClient, nil)
 
 	// Initialize Item/Equipment definitions components
 	itemRepo := items.NewItemRepository(db.Pool)
@@ -64,6 +79,32 @@ func main() {
 	// Initialize Inventory/Equipment components
 	invRepo := inventory.NewInventoryRepository(db.Pool)
 	invService := inventory.NewInventoryService(invRepo, charService, events.Global())
+
+	// Resolve circular startup reference by setting equipment provider
+	charService.SetEquipmentProvider(invService)
+
+	// Subscribe to inventory events for stat recalculations
+	events.Global().Subscribe(events.EventItemEquipped, func(ctx context.Context, ev events.Event) {
+		payload, ok := ev.Payload.(inventory.EquippedItemEventPayload)
+		if !ok {
+			return
+		}
+		log.Info("Item equipped event received, triggering stat recalculation", "character_id", payload.CharacterID)
+		if err := charService.RecalculateStats(ctx, int64(payload.CharacterID)); err != nil {
+			log.Error("Failed to recalculate stats on equip", "character_id", payload.CharacterID, "error", err)
+		}
+	})
+
+	events.Global().Subscribe(events.EventItemUnequipped, func(ctx context.Context, ev events.Event) {
+		payload, ok := ev.Payload.(inventory.EquippedItemEventPayload)
+		if !ok {
+			return
+		}
+		log.Info("Item unequipped event received, triggering stat recalculation", "character_id", payload.CharacterID)
+		if err := charService.RecalculateStats(ctx, int64(payload.CharacterID)); err != nil {
+			log.Error("Failed to recalculate stats on unequip", "character_id", payload.CharacterID, "error", err)
+		}
+	})
 
 	// 5. Setup multiplexer / router
 	mux := http.NewServeMux()
@@ -108,6 +149,7 @@ func main() {
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.CreateHandler(charService)))
 	mux.Handle("GET /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.ListHandler(charService)))
 	mux.Handle("GET /api/v1/characters/{id}", auth.AuthMiddleware(cfg.JWTSecret)(character.GetHandler(charService)))
+	mux.Handle("GET /api/v1/characters/{id}/stats", auth.AuthMiddleware(cfg.JWTSecret)(character.GetStatsHandler(charService)))
 
 	// Item Admin Endpoints (Protected by JWT)
 	mux.Handle("POST /api/v1/admin/items", auth.AuthMiddleware(cfg.JWTSecret)(items.CreateHandler(itemService)))
