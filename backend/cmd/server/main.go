@@ -110,11 +110,11 @@ func main() {
 		_, _ = w.Write(data)
 	})
 
-	mux.HandleFunc("GET /swagger", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /docs", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		data, err := apiFS.ReadFile("api/swagger.html")
+		data, err := apiFS.ReadFile("api/docs.html")
 		if err != nil {
-			log.Error("Failed to read swagger.html", "error", err)
+			log.Error("Failed to read docs.html", "error", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
