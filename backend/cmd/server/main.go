@@ -13,6 +13,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/internal/combat"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
@@ -93,6 +94,9 @@ func main() {
 	hub := socket.NewHub()
 	go hub.Run()
 
+	// Initialize Combat components
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), questService)
+
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {
 		case "CHAT":
@@ -116,6 +120,12 @@ func main() {
 			}
 			hub.AssociateCharacter(client, payload.CharacterID)
 
+			// Start active in-memory combat session for health tracking
+			char, err := charService.GetByID(context.Background(), payload.CharacterID)
+			if err == nil {
+				socket.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+			}
+
 			ack, _ := json.Marshal(map[string]interface{}{
 				"type": "SELECT_CHARACTER_ACK",
 				"payload": map[string]interface{}{
@@ -124,6 +134,42 @@ func main() {
 				},
 			})
 			client.Send <- ack
+
+		case "COMBAT_ATTACK":
+			if client.CharacterID == 0 {
+				errAck, _ := json.Marshal(map[string]interface{}{
+					"type": "COMBAT_ERROR",
+					"payload": map[string]interface{}{
+						"message": "no character selected",
+					},
+				})
+				client.Send <- errAck
+				return
+			}
+
+			var payload combat.AttackRequest
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				return
+			}
+			payload.AttackerID = client.CharacterID
+
+			res, err := combatService.ExecuteAttack(context.Background(), payload)
+			if err != nil {
+				errAck, _ := json.Marshal(map[string]interface{}{
+					"type": "COMBAT_ERROR",
+					"payload": map[string]interface{}{
+						"message": err.Error(),
+					},
+				})
+				client.Send <- errAck
+				return
+			}
+
+			broadMsg, _ := json.Marshal(map[string]interface{}{
+				"type":    "COMBAT_DAMAGE",
+				"payload": res,
+			})
+			hub.Broadcast <- broadMsg
 		}
 	}
 
