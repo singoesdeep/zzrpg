@@ -14,6 +14,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
+	"github.com/singoesdeep/zzrpg/backend/internal/items"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
@@ -53,6 +54,10 @@ func main() {
 	// Initialize Character components
 	charRepo := character.NewCharacterRepository(db.Pool)
 	charService := character.NewCharacterService(charRepo)
+
+	// Initialize Item/Equipment definitions components
+	itemRepo := items.NewItemRepository(db.Pool)
+	itemService := items.NewItemService(itemRepo)
 
 	// 5. Setup multiplexer / router
 	mux := http.NewServeMux()
@@ -97,6 +102,13 @@ func main() {
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.CreateHandler(charService)))
 	mux.Handle("GET /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.ListHandler(charService)))
 	mux.Handle("GET /api/v1/characters/{id}", auth.AuthMiddleware(cfg.JWTSecret)(character.GetHandler(charService)))
+
+	// Item Admin Endpoints (Protected by JWT)
+	mux.Handle("POST /api/v1/admin/items", auth.AuthMiddleware(cfg.JWTSecret)(items.CreateHandler(itemService)))
+	mux.Handle("PUT /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.UpdateHandler(itemService)))
+	mux.Handle("GET /api/v1/admin/items", auth.AuthMiddleware(cfg.JWTSecret)(items.ListHandler(itemService)))
+	mux.Handle("GET /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.GetHandler(itemService)))
+	mux.Handle("DELETE /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.DeleteHandler(itemService)))
 
 	// Swagger API Docs routes
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {

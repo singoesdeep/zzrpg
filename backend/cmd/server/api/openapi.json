@@ -308,6 +308,151 @@
           "404": { "description": "Character not found" }
         }
       }
+    },
+    "/api/v1/admin/items": {
+      "get": {
+        "summary": "List all item definitions",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "List of item templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string", "example": "dragon_sword_0" },
+                          "name": { "type": "string", "example": "Dragon Sword +0" },
+                          "slot_type": { "type": "string", "example": "WEAPON" },
+                          "min_level": { "type": "integer", "example": 10 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new item definition",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["id", "name", "slot_type"],
+                "properties": {
+                  "id": { "type": "string", "example": "dragon_sword_0" },
+                  "name": { "type": "string", "example": "Dragon Sword +0" },
+                  "description": { "type": "string", "example": "A sword forged in dragon fire." },
+                  "slot_type": { "type": "string", "example": "WEAPON" },
+                  "min_level": { "type": "integer", "example": 10 },
+                  "stats_modifiers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "stat": { "type": "string", "example": "ATTACK" },
+                        "operation": { "type": "string", "example": "ADD" },
+                        "value": { "type": "number", "example": 120.0 },
+                        "priority": { "type": "integer", "example": 20 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Item template created successfully" },
+          "400": { "description": "Validation failed" },
+          "409": { "description": "Item ID already exists" }
+        }
+      }
+    },
+    "/api/v1/admin/items/{id}": {
+      "get": {
+        "summary": "Get item definition details",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Item template details" },
+          "404": { "description": "Item not found" }
+        }
+      },
+      "put": {
+        "summary": "Update an existing item definition",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "slot_type"],
+                "properties": {
+                  "name": { "type": "string", "example": "Dragon Sword +1" },
+                  "description": { "type": "string", "example": "Upgraded sword" },
+                  "slot_type": { "type": "string", "example": "WEAPON" },
+                  "min_level": { "type": "integer", "example": 10 },
+                  "stats_modifiers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Item template updated successfully" },
+          "404": { "description": "Item not found" }
+        }
+      },
+      "delete": {
+        "summary": "Delete an item definition",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Item template deleted successfully" },
+          "404": { "description": "Item not found" }
+        }
+      }
     }
   },
   "components": {
