@@ -11,7 +11,7 @@ import (
 	"fmt"
 )
 
-//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json
 var files embed.FS
 
 // StatTerm is one additive term of a derived stat. A term with an empty Source
@@ -58,6 +58,35 @@ type PvPDef struct {
 type Mobs struct {
 	Mobs map[string]MobDef `json:"mobs"`
 	PvP  PvPDef            `json:"pvp"`
+}
+
+// IdleGainTerm computes a per-minute idle reward: a flat Base plus the named
+// base Stat scaled by StatCoeff. An empty Stat yields a flat Base.
+type IdleGainTerm struct {
+	Base      float64 `json:"base"`
+	Stat      string  `json:"stat"`
+	StatCoeff float64 `json:"stat_coeff"`
+}
+
+// PerMinute evaluates the term against a character's base stats. The arithmetic
+// order (stat*coeff, then +base) is preserved so the result is bit-identical to
+// the previously hardcoded offline-gain formula.
+func (t IdleGainTerm) PerMinute(baseStats map[string]float64) float64 {
+	return t.Base + baseStats[t.Stat]*t.StatCoeff
+}
+
+// IdleConfig describes offline ("idle") reward accrual: the min elapsed time
+// before gains apply, the cap on elapsed time, the per-minute gold/exp terms,
+// and the loot roll parameters (one roll per elapsed minute up to MaxRolls,
+// each dropping from LootTableID with probability RollChance).
+type IdleConfig struct {
+	MinSeconds  float64      `json:"min_seconds"`
+	CapSeconds  float64      `json:"cap_seconds"`
+	GoldPerMin  IdleGainTerm `json:"gold_per_min"`
+	ExpPerMin   IdleGainTerm `json:"exp_per_min"`
+	LootTableID string       `json:"loot_table_id"`
+	RollChance  float64      `json:"roll_chance"`
+	MaxRolls    int          `json:"max_rolls"`
 }
 
 // LoadDerivedStats reads the embedded derived-stat formula pack.
@@ -108,6 +137,28 @@ func LoadMobs() (*Mobs, error) {
 		return nil, fmt.Errorf("parse mobs.json: %w", err)
 	}
 	return &m, nil
+}
+
+// LoadIdle reads the embedded offline/idle reward config pack.
+func LoadIdle() (*IdleConfig, error) {
+	raw, err := files.ReadFile("idle/offline.json")
+	if err != nil {
+		return nil, fmt.Errorf("read offline.json: %w", err)
+	}
+	var c IdleConfig
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return nil, fmt.Errorf("parse offline.json: %w", err)
+	}
+	return &c, nil
+}
+
+// MustLoadIdle is LoadIdle but panics on error.
+func MustLoadIdle() *IdleConfig {
+	c, err := LoadIdle()
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
 // MustLoadMobs is LoadMobs but panics on error.

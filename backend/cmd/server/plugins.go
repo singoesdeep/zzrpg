@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
@@ -24,6 +25,9 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 )
+
+// idleConfig is the offline/idle reward pack, loaded once from embedded content.
+var idleConfig = content.MustLoadIdle()
 
 // statHolder wraps the embedded stat client so it can live in the registry even
 // when it is nil (the client fails to load and callers fall back). Storing a
@@ -354,31 +358,29 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 	if err == nil {
 		socket.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 
-		// Calculate Offline Gains.
+		// Calculate Offline Gains (tuning in content/idle/offline.json).
 		elapsedSeconds := time.Now().Sub(char.LastActiveAt).Seconds()
-		if elapsedSeconds >= 10 {
-			// Cap to 24 hours (86400 seconds).
-			if elapsedSeconds > 86400 {
-				elapsedSeconds = 86400
+		if elapsedSeconds >= idleConfig.MinSeconds {
+			// Cap elapsed time (default 24 hours).
+			if elapsedSeconds > idleConfig.CapSeconds {
+				elapsedSeconds = idleConfig.CapSeconds
 			}
 
 			// Calculate rates based on stats.
-			strVal := char.Stats.BaseStats["STR"]
-			intVal := char.Stats.BaseStats["INT"]
-			gainedGold := int64((elapsedSeconds / 60.0) * (10.0 + strVal*0.5))
-			gainedExp := int64((elapsedSeconds / 60.0) * (15.0 + intVal*0.8))
+			gainedGold := int64((elapsedSeconds / 60.0) * idleConfig.GoldPerMin.PerMinute(char.Stats.BaseStats))
+			gainedExp := int64((elapsedSeconds / 60.0) * idleConfig.ExpPerMin.PerMinute(char.Stats.BaseStats))
 
-			// Roll loot drops (1% chance per minute, cap 10 rolls).
+			// Roll loot drops (one roll per elapsed minute, capped).
 			var offlineLoot []loot.DroppedItem
 			rollCount := int(elapsedSeconds / 60.0)
 			if rollCount > 0 {
-				if rollCount > 10 {
-					rollCount = 10
+				if rollCount > idleConfig.MaxRolls {
+					rollCount = idleConfig.MaxRolls
 				}
 				rSource := rand.New(rand.NewSource(time.Now().UnixNano()))
 				for i := 0; i < rollCount; i++ {
-					if rSource.Float64() < 0.50 { // 50% chance to drop items
-						drops, err := p.lootService.RollLoot(context.Background(), "dummy_drops")
+					if rSource.Float64() < idleConfig.RollChance {
+						drops, err := p.lootService.RollLoot(context.Background(), idleConfig.LootTableID)
 						if err == nil {
 							for _, drop := range drops {
 								if drop.ItemDefinitionID == "gold" {

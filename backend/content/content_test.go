@@ -71,6 +71,41 @@ func TestMobsMatchLegacyHardcodes(t *testing.T) {
 	}
 }
 
+// TestIdleConfigMatchesLegacyHardcodes pins the offline-gain pack to the values
+// previously hardcoded in characterPlugin.handleSelectCharacter, including the
+// PerMinute arithmetic used for gold/exp accrual.
+func TestIdleConfigMatchesLegacyHardcodes(t *testing.T) {
+	cfg, err := LoadIdle()
+	if err != nil {
+		t.Fatalf("LoadIdle: %v", err)
+	}
+
+	if cfg.MinSeconds != 10 || cfg.CapSeconds != 86400 {
+		t.Errorf("min/cap: got %v/%v, want 10/86400", cfg.MinSeconds, cfg.CapSeconds)
+	}
+	if cfg.LootTableID != "dummy_drops" {
+		t.Errorf("loot table: got %q, want dummy_drops", cfg.LootTableID)
+	}
+	if cfg.RollChance != 0.50 || cfg.MaxRolls != 10 {
+		t.Errorf("roll: got chance=%v max=%v, want 0.5/10", cfg.RollChance, cfg.MaxRolls)
+	}
+	if cfg.GoldPerMin != (IdleGainTerm{Base: 10, Stat: "STR", StatCoeff: 0.5}) {
+		t.Errorf("gold_per_min: got %+v, want {10 STR 0.5}", cfg.GoldPerMin)
+	}
+	if cfg.ExpPerMin != (IdleGainTerm{Base: 15, Stat: "INT", StatCoeff: 0.8}) {
+		t.Errorf("exp_per_min: got %+v, want {15 INT 0.8}", cfg.ExpPerMin)
+	}
+
+	// PerMinute must reproduce the old inline `(base + stat*coeff)` exactly.
+	stats := map[string]float64{"STR": 20, "INT": 12}
+	if got, want := cfg.GoldPerMin.PerMinute(stats), 10.0+20*0.5; got != want {
+		t.Errorf("gold PerMinute: got %v, want %v", got, want)
+	}
+	if got, want := cfg.ExpPerMin.PerMinute(stats), 15.0+12*0.8; got != want {
+		t.Errorf("exp PerMinute: got %v, want %v", got, want)
+	}
+}
+
 func TestClassesMatchLegacyStats(t *testing.T) {
 	classes, err := LoadClasses()
 	if err != nil {
