@@ -5,8 +5,8 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +23,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
+	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
@@ -92,8 +93,21 @@ func main() {
 	questRepo := quests.NewQuestRepository(db.Pool)
 	questService := quests.NewQuestService(questRepo, charService, invService)
 
-	// Initialize Loot components
-	lootRepo := loot.NewLootRepository(db.Pool)
+	// Initialize cache (Redis) with graceful degradation. If Redis is not
+	// reachable the app still runs, going straight to the database.
+	var appCache cache.Cache = cache.Noop{}
+	if c, closeCache, err := cache.NewRedis(context.Background(), cfg.RedisURL); err != nil {
+		log.Warn("Redis unavailable; caching disabled (falling back to direct DB reads)", "error", err)
+	} else {
+		log.Info("Connected to Redis for caching", "url", cfg.RedisURL)
+		appCache = c
+		defer func() { _ = closeCache() }()
+	}
+
+	// Initialize Loot components (loot tables are static config read on every
+	// kill, so wrap the repository in a read-through cache).
+	var lootRepo loot.LootRepository = loot.NewLootRepository(db.Pool)
+	lootRepo = loot.NewCachedRepository(lootRepo, appCache, 10*time.Minute)
 	lootService := loot.NewLootService(lootRepo)
 
 	// Initialize WebSocket components
