@@ -1,4 +1,12 @@
-package socket
+// Package session holds the in-memory combat/health aggregate: a per-character
+// live session (HP/MP, alive/dead) and the registry that owns it. This is domain
+// state, not transport, so it lives here rather than in the socket (transport)
+// package — combat and the character plugin depend on session directly, keeping
+// the transport layer free of gameplay state.
+//
+// The registry is still a process global (GetRegistry) for now; de-globalizing
+// it into a kernel-owned, injected instance is a separate step (plan M4).
+package session
 
 import (
 	"sync"
@@ -13,23 +21,23 @@ type CharacterSession struct {
 	IsDead      bool
 }
 
-type SessionRegistry struct {
+type Registry struct {
 	mu       sync.RWMutex
 	sessions map[int64]*CharacterSession
 }
 
-var globalRegistry = &SessionRegistry{
+var globalRegistry = &Registry{
 	sessions: make(map[int64]*CharacterSession),
 }
 
-func GetRegistry() *SessionRegistry {
+func GetRegistry() *Registry {
 	return globalRegistry
 }
 
 // StartSession creates (or replaces) a session and returns a value copy. The
 // registry keeps the authoritative pointer internally; callers never receive it,
 // so session fields can only be mutated through the registry's locked methods.
-func (r *SessionRegistry) StartSession(charID int64, maxHP, maxMP float64) CharacterSession {
+func (r *Registry) StartSession(charID int64, maxHP, maxMP float64) CharacterSession {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -48,7 +56,7 @@ func (r *SessionRegistry) StartSession(charID int64, maxHP, maxMP float64) Chara
 // GetSession returns a consistent value snapshot of the session taken under the
 // read lock. Returning a copy (not the internal pointer) prevents data races
 // where a caller reads session fields while another goroutine mutates them.
-func (r *SessionRegistry) GetSession(charID int64) (CharacterSession, bool) {
+func (r *Registry) GetSession(charID int64) (CharacterSession, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	sess, exists := r.sessions[charID]
@@ -62,7 +70,7 @@ func (r *SessionRegistry) GetSession(charID int64) (CharacterSession, bool) {
 // landed the killing blow (killedNow). Death-triggered side effects (loot, quest
 // progress, rewards) must be gated on killedNow so that two concurrent attackers
 // finishing the same target cannot both be credited with the kill.
-func (r *SessionRegistry) DeductHPAndReserveKill(charID int64, amount float64) (hp float64, isDead bool, killedNow bool) {
+func (r *Registry) DeductHPAndReserveKill(charID int64, amount float64) (hp float64, isDead bool, killedNow bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -84,13 +92,13 @@ func (r *SessionRegistry) DeductHPAndReserveKill(charID int64, amount float64) (
 	return sess.CurrentHP, sess.IsDead, killedNow
 }
 
-func (r *SessionRegistry) EndSession(charID int64) {
+func (r *Registry) EndSession(charID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.sessions, charID)
 }
 
-func (r *SessionRegistry) DeductHP(charID int64, amount float64) (float64, bool) {
+func (r *Registry) DeductHP(charID int64, amount float64) (float64, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -112,7 +120,7 @@ func (r *SessionRegistry) DeductHP(charID int64, amount float64) (float64, bool)
 	return sess.CurrentHP, sess.IsDead
 }
 
-func (r *SessionRegistry) Heal(charID int64, amount float64) (float64, bool) {
+func (r *Registry) Heal(charID int64, amount float64) (float64, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -133,7 +141,7 @@ func (r *SessionRegistry) Heal(charID int64, amount float64) (float64, bool) {
 	return sess.CurrentHP, true
 }
 
-func (r *SessionRegistry) Revive(charID int64) bool {
+func (r *Registry) Revive(charID int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

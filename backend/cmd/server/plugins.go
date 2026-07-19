@@ -21,6 +21,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
+	"github.com/singoesdeep/zzrpg/backend/internal/session"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
@@ -176,7 +177,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 			if cs, err := registry.Resolve[character.CharacterService](reg, "character"); err == nil {
 				_ = cs.UpdateLastActive(context.Background(), client.CharacterID)
 			}
-			socket.GetRegistry().EndSession(client.CharacterID)
+			session.GetRegistry().EndSession(client.CharacterID)
 		}
 	}
 	mux.HandleFunc("/ws", socket.ServeWS(p.hub, cfg.JWTSecret, p.router.Dispatch, disconnect))
@@ -359,7 +360,7 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 	// Start active in-memory combat session for health tracking.
 	char, err := p.charService.GetByID(context.Background(), payload.CharacterID)
 	if err == nil {
-		socket.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+		session.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 
 		if p.eventBus != nil {
 			_ = p.eventBus.Publish(context.Background(), character.CharacterLoggedIn{
@@ -577,7 +578,7 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 
 	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
-	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), rewarder, ic.Bus())
+	combatService := combat.NewCombatService(charService, stat.client, session.GetRegistry(), rewarder, ic.Bus())
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {

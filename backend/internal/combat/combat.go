@@ -9,7 +9,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	"github.com/singoesdeep/zzrpg/backend/internal/socket"
+	"github.com/singoesdeep/zzrpg/backend/internal/session"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
 
@@ -67,7 +67,7 @@ type CombatService interface {
 type combatService struct {
 	charService CharacterReader
 	statClient  statclient.Client
-	registry    *socket.SessionRegistry
+	registry    *session.Registry
 	rewarder    KillRewarder
 	eventBus    bus.EventBus
 }
@@ -77,7 +77,7 @@ type combatService struct {
 func NewCombatService(
 	charService CharacterReader,
 	statClient statclient.Client,
-	registry *socket.SessionRegistry,
+	registry *session.Registry,
 	rewarder KillRewarder,
 	eventBus bus.EventBus,
 ) CombatService {

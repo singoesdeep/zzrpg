@@ -9,7 +9,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
-	"github.com/singoesdeep/zzrpg/backend/internal/socket"
+	"github.com/singoesdeep/zzrpg/backend/internal/session"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
 
@@ -78,7 +78,7 @@ func (m *mockQuestService) UpdateQuestProgress(ctx context.Context, charID int32
 }
 
 func TestCombatExecutionPvE(t *testing.T) {
-	registry := socket.GetRegistry()
+	registry := session.GetRegistry()
 	// Setup attacker session in in-memory registry
 	_ = registry.StartSession(1, 100.0, 50.0)
 
@@ -164,7 +164,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 // every attack and MobKilled on the killing blow — without altering combat's
 // synchronous result. This is the payoff of activating the event catalog.
 func TestCombatEmitsDomainEvents(t *testing.T) {
-	registry := socket.GetRegistry()
+	registry := session.GetRegistry()
 	_ = registry.StartSession(2, 100.0, 50.0)
 
 	charService := &mockCharService{
