@@ -54,3 +54,38 @@ func TestConcurrentAddItemNoSlotCollision(t *testing.T) {
 		seen[it.SlotIndex] = true
 	}
 }
+
+// TestKeyedMutexEvictsIdleEntries proves the per-key lock map does not grow
+// unbounded: after all lock/unlock pairs complete (even under contention), no
+// entry remains for any key.
+func TestKeyedMutexEvictsIdleEntries(t *testing.T) {
+	k := newKeyedMutex()
+
+	// Sequential: lock+unlock a key, entry must be gone afterwards.
+	k.lock(1)()
+	k.mu.Lock()
+	if _, ok := k.locks[1]; ok {
+		t.Errorf("entry for key 1 was not evicted after unlock")
+	}
+	k.mu.Unlock()
+
+	// Concurrent contention on several keys; the map must be empty at the end.
+	var wg sync.WaitGroup
+	for _, key := range []int32{1, 2, 3} {
+		for i := 0; i < 20; i++ {
+			wg.Add(1)
+			go func(key int32) {
+				defer wg.Done()
+				unlock := k.lock(key)
+				unlock()
+			}(key)
+		}
+	}
+	wg.Wait()
+
+	k.mu.Lock()
+	if n := len(k.locks); n != 0 {
+		t.Errorf("expected empty lock map after all releases, got %d entries", n)
+	}
+	k.mu.Unlock()
+}

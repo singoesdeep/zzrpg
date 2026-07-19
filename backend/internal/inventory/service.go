@@ -14,27 +14,50 @@ import (
 // and would otherwise race, e.g. two AddItem calls picking the same empty slot.
 // This is a single-node guard; a horizontally scaled deployment must replace it
 // with a database-level lock (SELECT ... FOR UPDATE or pg_advisory_xact_lock).
+//
+// Entries are reference-counted and evicted once no goroutine holds or is
+// waiting for a key, so the map does not grow unbounded with the number of
+// characters ever seen.
 type keyedMutex struct {
 	mu    sync.Mutex
-	locks map[int32]*sync.Mutex
+	locks map[int32]*refMutex
+}
+
+// refMutex is a per-key mutex plus a count of goroutines currently holding or
+// waiting for it. refs is only touched under keyedMutex.mu.
+type refMutex struct {
+	mu   sync.Mutex
+	refs int
 }
 
 func newKeyedMutex() *keyedMutex {
-	return &keyedMutex{locks: make(map[int32]*sync.Mutex)}
+	return &keyedMutex{locks: make(map[int32]*refMutex)}
 }
 
-// lock acquires the mutex for key and returns its unlock function.
+// lock acquires the mutex for key and returns its unlock function. Registering
+// interest (refs++) happens under k.mu before the per-key lock is taken, so a
+// waiter can never have its entry evicted by a departing holder; the entry is
+// removed only when the last reference is released.
 func (k *keyedMutex) lock(key int32) func() {
 	k.mu.Lock()
 	m, ok := k.locks[key]
 	if !ok {
-		m = &sync.Mutex{}
+		m = &refMutex{}
 		k.locks[key] = m
 	}
+	m.refs++
 	k.mu.Unlock()
 
-	m.Lock()
-	return m.Unlock
+	m.mu.Lock()
+	return func() {
+		m.mu.Unlock()
+		k.mu.Lock()
+		m.refs--
+		if m.refs == 0 {
+			delete(k.locks, key)
+		}
+		k.mu.Unlock()
+	}
 }
 
 type InventoryService interface {
