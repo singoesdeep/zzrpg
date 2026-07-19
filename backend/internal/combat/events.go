@@ -1,5 +1,7 @@
 package combat
 
+import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+
 // Domain event names published on the engine bus when combat resolves. These
 // events are additive: they let consumers (analytics, achievements, aggro/AI,
 // death penalties, client fan-out) react to combat without combat depending on
@@ -24,6 +26,15 @@ type CharacterDamaged struct {
 }
 
 func (CharacterDamaged) Name() string { return EventCharacterDamaged }
+
+// RegisterEventDecoders registers decoders for every event this package emits so
+// the cross-node event stream can rebuild them.
+func RegisterEventDecoders(r *outbox.Registry) {
+	r.Register(EventCombatAttackResolved, outbox.JSONDecoder[CombatAttackResolved]())
+	r.Register(EventMobKilled, outbox.JSONDecoder[MobKilled]())
+	r.Register(EventPlayerKilled, outbox.JSONDecoder[PlayerKilled]())
+	r.Register(EventCharacterDamaged, outbox.JSONDecoder[CharacterDamaged]())
+}
 
 // CombatAttackResolved is published for every resolved attack (hit or miss),
 // carrying the same outcome the caller receives in AttackResult.

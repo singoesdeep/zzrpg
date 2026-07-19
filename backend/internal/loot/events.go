@@ -1,5 +1,7 @@
 package loot
 
+import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+
 // EventLootDropped is the bus routing key for LootDropped.
 const EventLootDropped = "loot_dropped"
 
@@ -13,3 +15,9 @@ type LootDropped struct {
 }
 
 func (LootDropped) Name() string { return EventLootDropped }
+
+// RegisterEventDecoders registers decoders for every event this package emits so
+// the cross-node event stream can rebuild them.
+func RegisterEventDecoders(r *outbox.Registry) {
+	r.Register(EventLootDropped, outbox.JSONDecoder[LootDropped]())
+}

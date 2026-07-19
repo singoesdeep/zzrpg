@@ -72,21 +72,24 @@ func (p *Publisher) Publish(ctx context.Context, ev bus.Event) error {
 }
 
 // Consumer reads the stream via a per-node consumer group and re-injects other
-// nodes' events onto the local bus.
+// nodes' events onto the local bus. It publishes via publishLocal, which must
+// deliver locally WITHOUT re-forwarding (e.g. bus.Fanout.PublishLocal), so
+// re-injected events don't loop back around the cluster.
 type Consumer struct {
-	client *redis.Client
-	bus    bus.EventBus
-	reg    *outbox.Registry
-	log    *slog.Logger
-	stream string
-	group  string
-	origin string
+	client       *redis.Client
+	publishLocal func(context.Context, bus.Event) error
+	reg          *outbox.Registry
+	log          *slog.Logger
+	stream       string
+	group        string
+	origin       string
 }
 
 // NewConsumer builds a consumer whose group is unique to this node (so it
-// receives every event). stream defaults to DefaultStream; log defaults to
-// slog.Default().
-func NewConsumer(client *redis.Client, b bus.EventBus, reg *outbox.Registry, stream, origin string, log *slog.Logger) *Consumer {
+// receives every event). publishLocal delivers a decoded event to local
+// subscribers without re-forwarding it. stream defaults to DefaultStream; log
+// defaults to slog.Default().
+func NewConsumer(client *redis.Client, publishLocal func(context.Context, bus.Event) error, reg *outbox.Registry, stream, origin string, log *slog.Logger) *Consumer {
 	if stream == "" {
 		stream = DefaultStream
 	}
@@ -94,13 +97,13 @@ func NewConsumer(client *redis.Client, b bus.EventBus, reg *outbox.Registry, str
 		log = slog.Default()
 	}
 	return &Consumer{
-		client: client,
-		bus:    b,
-		reg:    reg,
-		log:    log,
-		stream: stream,
-		group:  "node:" + origin,
-		origin: origin,
+		client:       client,
+		publishLocal: publishLocal,
+		reg:          reg,
+		log:          log,
+		stream:       stream,
+		group:        "node:" + origin,
+		origin:       origin,
 	}
 }
 
@@ -165,5 +168,5 @@ func (c *Consumer) handle(ctx context.Context, msg redis.XMessage) {
 		c.log.Warn("eventstream: no decoder registered", "event", name)
 		return
 	}
-	_ = c.bus.Publish(ctx, ev)
+	_ = c.publishLocal(ctx, ev)
 }

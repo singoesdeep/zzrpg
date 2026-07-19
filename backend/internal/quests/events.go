@@ -1,5 +1,7 @@
 package quests
 
+import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+
 // Domain event names published on the engine bus for quest lifecycle changes.
 // Additive: emitting them does not change the service's synchronous behaviour
 // (the bus is async, fire-and-forget, and a no-op with no subscribers).
@@ -35,3 +37,11 @@ type QuestCompleted struct {
 }
 
 func (QuestCompleted) Name() string { return EventQuestCompleted }
+
+// RegisterEventDecoders registers decoders for every event this package emits so
+// the cross-node event stream can rebuild them.
+func RegisterEventDecoders(r *outbox.Registry) {
+	r.Register(EventQuestAccepted, outbox.JSONDecoder[QuestAccepted]())
+	r.Register(EventQuestProgressed, outbox.JSONDecoder[QuestProgressed]())
+	r.Register(EventQuestCompleted, outbox.JSONDecoder[QuestCompleted]())
+}

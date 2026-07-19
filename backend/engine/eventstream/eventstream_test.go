@@ -38,8 +38,8 @@ func TestCrossNodeFanout(t *testing.T) {
 	busA.Subscribe("stream_test_event", func(_ context.Context, ev bus.Event) { gotA <- ev })
 	busB.Subscribe("stream_test_event", func(_ context.Context, ev bus.Event) { gotB <- ev })
 
-	consA := NewConsumer(client, busA, reg, stream, "A", nil)
-	consB := NewConsumer(client, busB, reg, stream, "B", nil)
+	consA := NewConsumer(client, busA.Publish, reg, stream, "A", nil)
+	consB := NewConsumer(client, busB.Publish, reg, stream, "B", nil)
 
 	// Create both groups before publishing so the message is "never-delivered"
 	// (>) for each group regardless of when its Run loop starts reading.

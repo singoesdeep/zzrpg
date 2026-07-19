@@ -14,12 +14,11 @@ import (
 // publishes it, marking the row published. Delivery is at-least-once (a crash
 // between publish and mark re-delivers on the next scan).
 type Relay struct {
-	store   store.Store
-	bus     bus.EventBus
-	log     *slog.Logger
-	reg     *Registry
-	forward func(context.Context, bus.Event)
-	batch   int
+	store store.Store
+	bus   bus.EventBus
+	log   *slog.Logger
+	reg   *Registry
+	batch int
 }
 
 // NewRelay builds a relay over the given store and bus. If log is nil,
@@ -45,12 +44,6 @@ func (r *Relay) Register(name string, d Decoder) { r.reg.Register(name, d) }
 // Registry returns the relay's decoder registry so other consumers (e.g. the
 // cross-node event stream) can reuse the same registrations.
 func (r *Relay) Registry() *Registry { return r.reg }
-
-// SetForwarder installs an optional hook invoked with every event the relay
-// dispatches, after it is published on the local bus. It is used to fan the
-// event out to other nodes (e.g. a Redis stream). A nil forwarder disables
-// forwarding (single-node mode).
-func (r *Relay) SetForwarder(f func(context.Context, bus.Event)) { r.forward = f }
 
 // Dispatch runs one poll cycle: it publishes every currently-undispatched row in
 // insertion order and marks it published, returning the number dispatched. A row
@@ -93,10 +86,9 @@ func (r *Relay) Dispatch(ctx context.Context) (int, error) {
 		case !ok:
 			r.log.Warn("outbox: no decoder registered, skipping", "event", rec.eventType, "id", rec.id)
 		default:
+			// Publishing on the (fanout) bus both delivers locally and, when a
+			// forwarder is installed, broadcasts to other nodes.
 			_ = r.bus.Publish(ctx, ev)
-			if r.forward != nil {
-				r.forward(ctx, ev)
-			}
 		}
 
 		if _, err := r.store.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = $1`, rec.id); err != nil {

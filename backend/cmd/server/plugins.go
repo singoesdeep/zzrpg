@@ -118,27 +118,38 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	p.sessionReg = session.NewRegistry()
 
 	// Transactional outbox relay: dispatches events written in-tx (e.g. reward
-	// grants) onto the bus after commit. Domains register their decoders here.
+	// grants) onto the bus after commit.
 	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
-	character.RegisterOutboxDecoders(p.outboxRelay)
+
+	// Register every domain's event decoders on the shared registry, used by both
+	// the outbox relay and the cross-node event stream to rebuild typed events.
+	decoders := p.outboxRelay.Registry()
+	character.RegisterEventDecoders(decoders)
+	combat.RegisterEventDecoders(decoders)
+	quests.RegisterEventDecoders(decoders)
+	inventory.RegisterEventDecoders(decoders)
+	loot.RegisterEventDecoders(decoders)
 
 	// Optional cross-node event fan-out over Redis Streams. When Redis is
-	// reachable, relay-dispatched events are forwarded to the stream and a
-	// consumer re-injects other nodes' events onto this node's bus; without it
+	// reachable, EVERY event published on the (fanout) bus is broadcast to the
+	// stream and a consumer re-injects other nodes' events locally; without it
 	// the app runs single-node exactly as before (graceful degradation).
 	nodeID := nodeID()
 	if streamClient, err := eventstream.Dial(ctx, cfg.RedisURL); err != nil {
 		log.Warn("Cross-node event streaming disabled; running single-node", "error", err)
-	} else {
+	} else if fb, ok := ic.Bus().(*bus.Fanout); ok {
 		pub := eventstream.NewPublisher(streamClient, "", nodeID)
-		p.outboxRelay.SetForwarder(func(fctx context.Context, ev bus.Event) {
+		fb.SetForwarder(func(fctx context.Context, ev bus.Event) {
 			if err := pub.Publish(fctx, ev); err != nil {
 				log.Error("event fan-out publish failed", "event", ev.Name(), "error", err)
 			}
 		})
-		p.eventConsumer = eventstream.NewConsumer(streamClient, ic.Bus(), p.outboxRelay.Registry(), "", nodeID, log)
+		p.eventConsumer = eventstream.NewConsumer(streamClient, fb.PublishLocal, decoders, "", nodeID, log)
 		p.closeStream = streamClient.Close
 		log.Info("Cross-node event streaming enabled", "node", nodeID)
+	} else {
+		_ = streamClient.Close()
+		log.Warn("Kernel bus is not a Fanout; cross-node streaming disabled")
 	}
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {

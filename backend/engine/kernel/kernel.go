@@ -36,7 +36,9 @@ func New(cfg *config.Config, log *slog.Logger) *Kernel {
 		cfg: cfg,
 		log: log,
 		reg: registry.New(),
-		bus: bus.NewInProc(log),
+		// Fanout-wrapped so events can additionally be broadcast to other nodes
+		// when a forwarder is installed; a transparent pass-through until then.
+		bus: bus.NewFanout(bus.NewInProc(log)),
 		mux: http.NewServeMux(),
 	}
 }

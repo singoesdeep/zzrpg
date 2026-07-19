@@ -800,7 +800,7 @@ func TestOutboxDispatchesRewardEvents(t *testing.T) {
 		got <- ev.(character.RewardsGranted)
 	})
 	relay := outbox.NewRelay(st, eventBus, nil)
-	character.RegisterOutboxDecoders(relay)
+	character.RegisterEventDecoders(relay.Registry())
 	if _, err := relay.Dispatch(ctx); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}

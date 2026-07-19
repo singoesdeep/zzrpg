@@ -1,5 +1,7 @@
 package inventory
 
+import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+
 // Event names for inventory changes published on the engine bus.
 const (
 	EventItemEquipped         = "item_equipped"
@@ -18,6 +20,14 @@ type ItemAddedToInventory struct {
 }
 
 func (ItemAddedToInventory) Name() string { return EventItemAddedToInventory }
+
+// RegisterEventDecoders registers decoders for every event this package emits so
+// the cross-node event stream can rebuild them.
+func RegisterEventDecoders(r *outbox.Registry) {
+	r.Register(EventItemEquipped, outbox.JSONDecoder[ItemEquipped]())
+	r.Register(EventItemUnequipped, outbox.JSONDecoder[ItemUnequipped]())
+	r.Register(EventItemAddedToInventory, outbox.JSONDecoder[ItemAddedToInventory]())
+}
 
 // ItemEquipped is published when an item becomes equipped in an equipment slot.
 // It implements engine/bus.Event via Name().
