@@ -110,11 +110,11 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		dummySess, dummyExists := s.registry.GetSession(9999)
 		if !dummyExists {
 			dummySess = s.registry.StartSession(9999, 1000.0, 100.0)
-		}
-		if dummySess.IsDead {
-			// Auto revive dummy for testing convenience
-			dummySess.CurrentHP = dummySess.MaxHP
-			dummySess.IsDead = false
+		} else if dummySess.IsDead {
+			// Auto revive dummy for testing convenience (mutate through the
+			// registry so the change is applied under its lock, then re-read).
+			s.registry.Revive(9999)
+			dummySess, _ = s.registry.GetSession(9999)
 		}
 		defenderHP = dummySess.CurrentHP
 		defenderIsDead = dummySess.IsDead
@@ -172,19 +172,21 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		}
 	}
 
-	// 4. If hit, deduct defender HP
-	var finalHP float64
-	var finalIsDead bool
-
+	// 4. If hit, deduct defender HP atomically and learn whether this attack
+	// landed the kill (killedNow), so death rewards are credited exactly once.
+	var killedNow bool
 	if res.IsHit {
-		finalHP, finalIsDead = s.registry.DeductHP(req.DefenderID, float64(res.Damage))
+		finalHP, finalIsDead, killed := s.registry.DeductHPAndReserveKill(req.DefenderID, float64(res.Damage))
 		defenderHP = finalHP
 		defenderIsDead = finalIsDead
+		killedNow = killed
 	}
 
-	// 5. Trigger death progression (loot, quest progress) if defender died
+	// 5. Trigger death progression (loot, quest progress) only for the attacker
+	// that actually killed the defender — prevents double loot/quest rewards when
+	// concurrent attackers finish the same target.
 	var rolledLoot []loot.DroppedItem
-	if defenderIsDead {
+	if killedNow {
 		var tableID string
 		if req.DefenderID == 9999 {
 			tableID = "dummy_drops"

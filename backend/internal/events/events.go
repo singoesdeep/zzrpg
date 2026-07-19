@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 )
 
@@ -47,8 +48,22 @@ func (b *Bus) Publish(ctx context.Context, t EventType, payload any) {
 		return
 	}
 
+	// Detach from the caller's cancellation (typically an HTTP request context):
+	// handlers run asynchronously and must survive the request returning, while
+	// still inheriting request-scoped values. Without this, a handler such as the
+	// equip → stat-recalculation trigger would routinely fail with "context
+	// canceled" the moment its originating request completed.
+	detached := context.WithoutCancel(ctx)
 	event := Event{Type: t, Payload: payload}
 	for _, h := range handlers {
-		go h(ctx, event) // Run async
+		go func(h Handler) {
+			// A panicking subscriber must not crash the whole server.
+			defer func() {
+				if rec := recover(); rec != nil {
+					slog.Error("event handler panicked", "event", t, "panic", rec)
+				}
+			}()
+			h(detached, event)
+		}(h)
 	}
 }
