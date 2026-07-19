@@ -3,10 +3,39 @@ package inventory
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/events"
 )
+
+// keyedMutex serializes operations per key (here, per character). Inventory
+// mutations (AddItem, MoveItem) do read-then-write across multiple statements
+// and would otherwise race, e.g. two AddItem calls picking the same empty slot.
+// This is a single-node guard; a horizontally scaled deployment must replace it
+// with a database-level lock (SELECT ... FOR UPDATE or pg_advisory_xact_lock).
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[int32]*sync.Mutex
+}
+
+func newKeyedMutex() *keyedMutex {
+	return &keyedMutex{locks: make(map[int32]*sync.Mutex)}
+}
+
+// lock acquires the mutex for key and returns its unlock function.
+func (k *keyedMutex) lock(key int32) func() {
+	k.mu.Lock()
+	m, ok := k.locks[key]
+	if !ok {
+		m = &sync.Mutex{}
+		k.locks[key] = m
+	}
+	k.mu.Unlock()
+
+	m.Lock()
+	return m.Unlock
+}
 
 type InventoryService interface {
 	MoveItem(ctx context.Context, charID int32, fromSlot, toSlot int32) error
@@ -23,6 +52,7 @@ type inventoryService struct {
 	repo        InventoryRepository
 	charService character.CharacterService
 	eventBus    *events.Bus
+	charLocks   *keyedMutex
 }
 
 func NewInventoryService(repo InventoryRepository, charService character.CharacterService, eventBus *events.Bus) InventoryService {
@@ -30,6 +60,7 @@ func NewInventoryService(repo InventoryRepository, charService character.Charact
 		repo:        repo,
 		charService: charService,
 		eventBus:    eventBus,
+		charLocks:   newKeyedMutex(),
 	}
 }
 
@@ -50,6 +81,10 @@ func (s *inventoryService) GetInventory(ctx context.Context, charID int32) ([]In
 }
 
 func (s *inventoryService) AddItem(ctx context.Context, item *InventoryItem) error {
+	// Serialize inventory mutations for this character so the find-empty-slot /
+	// insert sequence is atomic against concurrent adds and moves.
+	defer s.charLocks.lock(item.CharacterID)()
+
 	// Find first empty bag slot (0..99)
 	existingItems, err := s.repo.ListByCharacter(ctx, item.CharacterID)
 	if err != nil {
@@ -78,6 +113,11 @@ func (s *inventoryService) AddItem(ctx context.Context, item *InventoryItem) err
 }
 
 func (s *inventoryService) MoveItem(ctx context.Context, charID int32, fromSlot, toSlot int32) error {
+	// Serialize inventory mutations for this character so the read (GetBySlot) →
+	// validate → write (Move/Swap) sequence is atomic against concurrent
+	// mutations, eliminating the TOCTOU that could hit the slot unique constraint.
+	defer s.charLocks.lock(charID)()
+
 	// 1. Boundary check
 	if !isValidSlot(fromSlot) || !isValidSlot(toSlot) {
 		return ErrSlotOutOfBounds

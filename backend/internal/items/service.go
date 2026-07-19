@@ -98,7 +98,7 @@ func (s *itemService) validate(item *ItemDefinition) error {
 			return ErrInvalidModifierType
 		}
 
-		if m.Operation != "ADD" && m.Operation != "MULTIPLY" {
+		if m.Operation != OpAdd && m.Operation != OpMultiply {
 			return ErrInvalidModifierType
 		}
 

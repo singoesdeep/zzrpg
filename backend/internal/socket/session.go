@@ -26,7 +26,10 @@ func GetRegistry() *SessionRegistry {
 	return globalRegistry
 }
 
-func (r *SessionRegistry) StartSession(charID int64, maxHP, maxMP float64) *CharacterSession {
+// StartSession creates (or replaces) a session and returns a value copy. The
+// registry keeps the authoritative pointer internally; callers never receive it,
+// so session fields can only be mutated through the registry's locked methods.
+func (r *SessionRegistry) StartSession(charID int64, maxHP, maxMP float64) CharacterSession {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -39,14 +42,46 @@ func (r *SessionRegistry) StartSession(charID int64, maxHP, maxMP float64) *Char
 		IsDead:      false,
 	}
 	r.sessions[charID] = session
-	return session
+	return *session
 }
 
-func (r *SessionRegistry) GetSession(charID int64) (*CharacterSession, bool) {
+// GetSession returns a consistent value snapshot of the session taken under the
+// read lock. Returning a copy (not the internal pointer) prevents data races
+// where a caller reads session fields while another goroutine mutates them.
+func (r *SessionRegistry) GetSession(charID int64) (CharacterSession, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	sess, exists := r.sessions[charID]
-	return sess, exists
+	if !exists {
+		return CharacterSession{}, false
+	}
+	return *sess, true
+}
+
+// DeductHPAndReserveKill atomically applies damage and reports whether THIS call
+// landed the killing blow (killedNow). Death-triggered side effects (loot, quest
+// progress, rewards) must be gated on killedNow so that two concurrent attackers
+// finishing the same target cannot both be credited with the kill.
+func (r *SessionRegistry) DeductHPAndReserveKill(charID int64, amount float64) (hp float64, isDead bool, killedNow bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sess, exists := r.sessions[charID]
+	if !exists {
+		return 0, false, false
+	}
+	if sess.IsDead {
+		// Already dead: this attack did not land the kill.
+		return 0, true, false
+	}
+
+	sess.CurrentHP -= amount
+	if sess.CurrentHP <= 0 {
+		sess.CurrentHP = 0
+		sess.IsDead = true
+		killedNow = true
+	}
+	return sess.CurrentHP, sess.IsDead, killedNow
 }
 
 func (r *SessionRegistry) EndSession(charID int64) {

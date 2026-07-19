@@ -14,6 +14,12 @@ var (
 	ErrStepIndexOutOfBounds  = errors.New("quest step index out of bounds")
 )
 
+// Character-quest status values.
+const (
+	StatusActive    = "ACTIVE"
+	StatusCompleted = "COMPLETED"
+)
+
 type QuestStep struct {
 	Type   string `json:"type"`   // "KILL_MOB", "TALK_NPC", "COLLECT_ITEM"
 	Target string `json:"target"` // e.g. "wolf", "blacksmith", "iron_ore"

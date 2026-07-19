@@ -59,7 +59,17 @@ type Client interface {
 }
 
 type embeddedStatClient struct {
-	rng *rand.Rand
+	// rng is a *math/rand.Rand (not concurrent-safe). CalculateDamage runs
+	// concurrently across combat goroutines, so rng access is serialized by rngMu.
+	rngMu sync.Mutex
+	rng   *rand.Rand
+}
+
+// randFloat returns a serialized rng.Float64().
+func (c *embeddedStatClient) randFloat() float64 {
+	c.rngMu.Lock()
+	defer c.rngMu.Unlock()
+	return c.rng.Float64()
 }
 
 var (
@@ -221,7 +231,7 @@ func (c *embeddedStatClient) CalculateDamage(ctx context.Context, req CalculateD
 	}
 
 	// Roll for hit
-	hitRoll := c.rng.Float64()
+	hitRoll := c.randFloat()
 	if hitRoll >= hitChance {
 		return DamageResult{
 			IsHit:  false,
@@ -243,14 +253,14 @@ func (c *embeddedStatClient) CalculateDamage(ctx context.Context, req CalculateD
 	}
 
 	// 3. Roll critical strike
-	critRoll := c.rng.Float64() * 100.0
+	critRoll := c.randFloat() * 100.0
 	isCrit := critRoll < req.Attacker.CritRate
 	if isCrit {
 		damage = damage * 1.5 * (1.0 + req.Attacker.CritDamageBonus)
 	}
 
 	// 4. RNG Variance (±10%)
-	variance := 0.9 + c.rng.Float64()*0.2
+	variance := 0.9 + c.randFloat()*0.2
 	finalDamage := math.Round(damage * variance)
 	if finalDamage < 1 {
 		finalDamage = 1

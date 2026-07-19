@@ -5,18 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 )
 
-type apiResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *apiError   `json:"error,omitempty"`
-}
+// Response/error envelope types live once in pkg/httpx.
+type apiResponse = httpx.Response
 
-type apiError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+type apiError = httpx.Error
 
 type acceptRequest struct {
 	QuestID string `json:"quest_id"`
@@ -128,7 +124,7 @@ func AcceptQuestHandler(service QuestService) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(apiResponse{
 			Success: true,
-			Data:    map[string]interface{}{"quest_id": req.QuestID, "status": "ACTIVE"},
+			Data:    map[string]interface{}{"quest_id": req.QuestID, "status": StatusActive},
 		})
 	}
 }
@@ -201,12 +197,5 @@ func UpdateQuestProgressHandler(service QuestService) http.HandlerFunc {
 }
 
 func writeError(w http.ResponseWriter, statusCode int, code, message string) {
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(apiResponse{
-		Success: false,
-		Error: &apiError{
-			Code:    code,
-			Message: message,
-		},
-	})
+	httpx.WriteError(w, statusCode, code, message)
 }
