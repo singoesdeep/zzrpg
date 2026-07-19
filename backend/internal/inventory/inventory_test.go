@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 )
 
@@ -114,9 +114,9 @@ func TestMoveAndEquipItem(t *testing.T) {
 			},
 		},
 	}
-	bus := events.Global()
+	eventBus := bus.NewInProc(nil)
 
-	service := NewInventoryService(repo, charService, bus)
+	service := NewInventoryService(repo, charService, eventBus)
 
 	// Create test sword definition
 	swordDef := &items.ItemDefinition{
@@ -139,10 +139,10 @@ func TestMoveAndEquipItem(t *testing.T) {
 
 	// Subscribe to event bus to verify notifications
 	var wg sync.WaitGroup
-	var receivedEvent events.EventType
+	var receivedEvent string
 	wg.Add(1)
-	bus.Subscribe(events.EventItemEquipped, func(ctx context.Context, event events.Event) {
-		receivedEvent = event.Type
+	eventBus.Subscribe(EventItemEquipped, func(ctx context.Context, event bus.Event) {
+		receivedEvent = event.Name()
 		wg.Done()
 	})
 
@@ -154,7 +154,7 @@ func TestMoveAndEquipItem(t *testing.T) {
 
 	// Wait for event to be received in goroutine
 	wg.Wait()
-	if receivedEvent != events.EventItemEquipped {
+	if receivedEvent != EventItemEquipped {
 		t.Errorf("expected EventItemEquipped event notification, got %s", receivedEvent)
 	}
 

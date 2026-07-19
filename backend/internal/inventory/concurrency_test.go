@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 )
 
 // TestConcurrentAddItemNoSlotCollision proves that concurrent AddItem calls for
@@ -21,7 +21,7 @@ func TestConcurrentAddItemNoSlotCollision(t *testing.T) {
 			Character: character.Character{ID: 1, ClassName: "WARRIOR", Level: 1},
 		},
 	}
-	service := NewInventoryService(repo, charService, events.Global())
+	service := NewInventoryService(repo, charService, bus.NewInProc(nil))
 
 	const n = 50
 	var wg sync.WaitGroup

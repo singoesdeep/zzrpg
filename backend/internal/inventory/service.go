@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 )
 
 // keyedMutex serializes operations per key (here, per character). Inventory
@@ -51,11 +51,11 @@ type InventoryService interface {
 type inventoryService struct {
 	repo        InventoryRepository
 	charService character.CharacterService
-	eventBus    *events.Bus
+	eventBus    bus.EventBus
 	charLocks   *keyedMutex
 }
 
-func NewInventoryService(repo InventoryRepository, charService character.CharacterService, eventBus *events.Bus) InventoryService {
+func NewInventoryService(repo InventoryRepository, charService character.CharacterService, eventBus bus.EventBus) InventoryService {
 	return &inventoryService{
 		repo:        repo,
 		charService: charService,
@@ -172,29 +172,17 @@ func (s *inventoryService) MoveItem(ctx context.Context, charID int32, fromSlot,
 
 	// 5. Fire Event Bus triggers for stat calculations
 	if isFromEquip {
-		s.eventBus.Publish(ctx, events.EventItemUnequipped, EquippedItemEventPayload{
-			CharacterID: charID,
-			Item:        item,
-		})
+		_ = s.eventBus.Publish(ctx, ItemUnequipped{CharacterID: charID, Item: item})
 	}
 	if isToEquip {
-		s.eventBus.Publish(ctx, events.EventItemEquipped, EquippedItemEventPayload{
-			CharacterID: charID,
-			Item:        item,
-		})
+		_ = s.eventBus.Publish(ctx, ItemEquipped{CharacterID: charID, Item: item})
 	}
 	if destItem != nil {
 		if isToEquip { // destItem was unequipped to fromSlot
-			s.eventBus.Publish(ctx, events.EventItemUnequipped, EquippedItemEventPayload{
-				CharacterID: charID,
-				Item:        destItem,
-			})
+			_ = s.eventBus.Publish(ctx, ItemUnequipped{CharacterID: charID, Item: destItem})
 		}
 		if isFromEquip { // destItem was equipped from toSlot
-			s.eventBus.Publish(ctx, events.EventItemEquipped, EquippedItemEventPayload{
-				CharacterID: charID,
-				Item:        destItem,
-			})
+			_ = s.eventBus.Publish(ctx, ItemEquipped{CharacterID: charID, Item: destItem})
 		}
 	}
 

@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/kernel"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
@@ -29,11 +28,6 @@ func main() {
 	log.Info("Starting zzrpg backend...", "env", cfg.Env, "port", cfg.Port)
 
 	k := kernel.New(cfg, log)
-
-	// Share the kernel's event bus with the legacy events facade so that events
-	// published through events.Global() (e.g. inventory equip/unequip) travel
-	// over the same bus the engine owns.
-	events.Global().SetBackend(k.Bus())
 
 	k.Register(
 		&corePlugin{},

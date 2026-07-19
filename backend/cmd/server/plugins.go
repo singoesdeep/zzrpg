@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
@@ -302,24 +302,25 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	mux.Handle("GET /api/v1/characters/{id}/stats", auth.AuthMiddleware(cfg.JWTSecret)(character.GetStatsHandler(p.charService)))
 
 	// Stat recalculation on equip/unequip.
-	events.Global().Subscribe(events.EventItemEquipped, func(ctx context.Context, ev events.Event) {
-		payload, ok := ev.Payload.(inventory.EquippedItemEventPayload)
+	eventBus := ic.Bus()
+	eventBus.Subscribe(inventory.EventItemEquipped, func(ctx context.Context, ev bus.Event) {
+		e, ok := ev.(inventory.ItemEquipped)
 		if !ok {
 			return
 		}
-		log.Info("Item equipped event received, triggering stat recalculation", "character_id", payload.CharacterID)
-		if err := p.charService.RecalculateStats(ctx, int64(payload.CharacterID)); err != nil {
-			log.Error("Failed to recalculate stats on equip", "character_id", payload.CharacterID, "error", err)
+		log.Info("Item equipped event received, triggering stat recalculation", "character_id", e.CharacterID)
+		if err := p.charService.RecalculateStats(ctx, int64(e.CharacterID)); err != nil {
+			log.Error("Failed to recalculate stats on equip", "character_id", e.CharacterID, "error", err)
 		}
 	})
-	events.Global().Subscribe(events.EventItemUnequipped, func(ctx context.Context, ev events.Event) {
-		payload, ok := ev.Payload.(inventory.EquippedItemEventPayload)
+	eventBus.Subscribe(inventory.EventItemUnequipped, func(ctx context.Context, ev bus.Event) {
+		e, ok := ev.(inventory.ItemUnequipped)
 		if !ok {
 			return
 		}
-		log.Info("Item unequipped event received, triggering stat recalculation", "character_id", payload.CharacterID)
-		if err := p.charService.RecalculateStats(ctx, int64(payload.CharacterID)); err != nil {
-			log.Error("Failed to recalculate stats on unequip", "character_id", payload.CharacterID, "error", err)
+		log.Info("Item unequipped event received, triggering stat recalculation", "character_id", e.CharacterID)
+		if err := p.charService.RecalculateStats(ctx, int64(e.CharacterID)); err != nil {
+			log.Error("Failed to recalculate stats on unequip", "character_id", e.CharacterID, "error", err)
 		}
 	})
 
@@ -449,7 +450,7 @@ func (inventoryPlugin) Init(ic plugin.InitContext) error {
 	charService := registry.MustResolve[character.CharacterService](reg, "character")
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
-	invService := inventory.NewInventoryService(invRepo, charService, events.Global())
+	invService := inventory.NewInventoryService(invRepo, charService, ic.Bus())
 	if err := registry.Provide(reg, "inventory", invService); err != nil {
 		return err
 	}

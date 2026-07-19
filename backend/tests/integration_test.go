@@ -13,11 +13,11 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
-	"github.com/singoesdeep/zzrpg/backend/internal/events"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
@@ -83,7 +83,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	_ = itemService
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
-	invService := inventory.NewInventoryService(invRepo, charService, events.Global())
+	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 
 	charService.SetEquipmentProvider(invService)
 
@@ -345,7 +345,7 @@ func TestDoubleSessionOverride(t *testing.T) {
 	charService := character.NewCharacterService(charRepo, statClient, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
-	invService := inventory.NewInventoryService(invRepo, charService, events.Global())
+	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 	charService.SetEquipmentProvider(invService)
 
 	hub := socket.NewHub()
@@ -492,7 +492,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	charService := character.NewCharacterService(charRepo, statClient, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
-	invService := inventory.NewInventoryService(invRepo, charService, events.Global())
+	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 	charService.SetEquipmentProvider(invService)
 
 	questRepo := quests.NewQuestRepository(db.Pool)

@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	ErrSlotOccupied       = errors.New("destination slot is already occupied")
-	ErrSlotOutOfBounds    = errors.New("slot index out of bounds")
-	ErrItemNotFound       = errors.New("item not found in inventory")
-	ErrLevelRestricted    = errors.New("character level is too low to equip this item")
-	ErrClassRestricted    = errors.New("character class is restricted from equipping this item")
+	ErrSlotOccupied         = errors.New("destination slot is already occupied")
+	ErrSlotOutOfBounds      = errors.New("slot index out of bounds")
+	ErrItemNotFound         = errors.New("item not found in inventory")
+	ErrLevelRestricted      = errors.New("character level is too low to equip this item")
+	ErrClassRestricted      = errors.New("character class is restricted from equipping this item")
 	ErrInvalidEquipmentSlot = errors.New("item slot type does not match equipment slot")
 	ErrNotOwner             = errors.New("character does not belong to the requesting user")
 )
@@ -48,11 +48,6 @@ type MoveRequest struct {
 	CharacterID int32 `json:"character_id"`
 	FromSlot    int32 `json:"from_slot"`
 	ToSlot      int32 `json:"to_slot"`
-}
-
-type EquippedItemEventPayload struct {
-	CharacterID int32
-	Item        *InventoryItem
 }
 
 type InventoryRepository interface {
