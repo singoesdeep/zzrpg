@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
 
@@ -25,13 +26,25 @@ type characterService struct {
 	repo          CharacterRepository
 	statClient    statclient.Client
 	equipProvider EquipmentProvider
+	eventBus      bus.EventBus
 }
 
-func NewCharacterService(repo CharacterRepository, statClient statclient.Client, equipProvider EquipmentProvider) CharacterService {
+// NewCharacterService builds the character service. eventBus may be nil, in which
+// case no domain events are published (the service is otherwise unchanged).
+func NewCharacterService(repo CharacterRepository, statClient statclient.Client, equipProvider EquipmentProvider, eventBus bus.EventBus) CharacterService {
 	return &characterService{
 		repo:          repo,
 		statClient:    statClient,
 		equipProvider: equipProvider,
+		eventBus:      eventBus,
+	}
+}
+
+// publish emits ev on the bus when one is configured. Publishing is async and
+// fire-and-forget, so it never affects the service's synchronous outcome.
+func (s *characterService) publish(ctx context.Context, ev bus.Event) {
+	if s.eventBus != nil {
+		_ = s.eventBus.Publish(ctx, ev)
 	}
 }
 
@@ -122,7 +135,12 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 	}
 
 	// 5. Save/Update derived stats cache in database
-	return s.repo.UpdateStats(ctx, charID, finalStats)
+	if err := s.repo.UpdateStats(ctx, charID, finalStats); err != nil {
+		return err
+	}
+
+	s.publish(ctx, StatsRecalculated{CharacterID: charID, DerivedStats: finalStats})
+	return nil
 }
 
 func (s *characterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
@@ -131,8 +149,11 @@ func (s *characterService) AddRewards(ctx context.Context, charID int64, gold in
 		return false, 0, err
 	}
 
+	s.publish(ctx, RewardsGranted{CharacterID: charID, Gold: gold, Exp: exp})
+
 	// Recalculate stats if character leveled up (since base stats increased)
 	if leveledUp {
+		s.publish(ctx, CharacterLeveledUp{CharacterID: charID, NewLevel: newLevel})
 		_ = s.RecalculateStats(ctx, charID)
 	}
 

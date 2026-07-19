@@ -3,6 +3,7 @@ package quests
 import (
 	"context"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 )
@@ -34,13 +35,25 @@ type questService struct {
 	repo         QuestRepository
 	charService  CharacterGateway
 	inventorySvc InventoryWriter
+	eventBus     bus.EventBus
 }
 
-func NewQuestService(repo QuestRepository, charService CharacterGateway, inventorySvc InventoryWriter) QuestService {
+// NewQuestService builds the quest service. eventBus may be nil, in which case no
+// domain events are published (the service is otherwise unchanged).
+func NewQuestService(repo QuestRepository, charService CharacterGateway, inventorySvc InventoryWriter, eventBus bus.EventBus) QuestService {
 	return &questService{
 		repo:         repo,
 		charService:  charService,
 		inventorySvc: inventorySvc,
+		eventBus:     eventBus,
+	}
+}
+
+// publish emits ev on the bus when one is configured. Publishing is async and
+// fire-and-forget, so it never affects the service's synchronous outcome.
+func (s *questService) publish(ctx context.Context, ev bus.Event) {
+	if s.eventBus != nil {
+		_ = s.eventBus.Publish(ctx, ev)
 	}
 }
 
@@ -93,7 +106,12 @@ func (s *questService) AcceptQuest(ctx context.Context, charID int32, questID st
 	initialProgress := make([]int32, len(qd.Steps))
 
 	// 5. Save to database
-	return s.repo.AcceptQuest(ctx, charID, questID, initialProgress)
+	if err := s.repo.AcceptQuest(ctx, charID, questID, initialProgress); err != nil {
+		return err
+	}
+
+	s.publish(ctx, QuestAccepted{CharacterID: charID, QuestID: questID})
+	return nil
 }
 
 func (s *questService) UpdateQuestProgress(ctx context.Context, charID int32, actionType string, target string, amount int32) error {
@@ -159,17 +177,21 @@ func (s *questService) UpdateQuestProgress(ctx context.Context, charID int32, ac
 					}
 					_ = s.inventorySvc.AddItem(ctx, invItem)
 				}
+
+				s.publish(ctx, QuestCompleted{CharacterID: charID, QuestID: cq.QuestID})
 			} else if stepCompleted {
 				// Move to next step
 				cq.CurrentStepIndex++
 				if err := s.repo.UpdateProgress(ctx, charID, cq.QuestID, cq.CurrentStepIndex, cq.Progress); err != nil {
 					return err
 				}
+				s.publish(ctx, QuestProgressed{CharacterID: charID, QuestID: cq.QuestID, Step: cq.CurrentStepIndex})
 			} else {
 				// Just save progress
 				if err := s.repo.UpdateProgress(ctx, charID, cq.QuestID, cq.CurrentStepIndex, cq.Progress); err != nil {
 					return err
 				}
+				s.publish(ctx, QuestProgressed{CharacterID: charID, QuestID: cq.QuestID, Step: cq.CurrentStepIndex})
 			}
 		}
 	}

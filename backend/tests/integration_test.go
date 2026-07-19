@@ -77,7 +77,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	statClient := &mockStatClient{}
 
 	charRepo := character.NewCharacterRepository(db.Pool)
-	charService := character.NewCharacterService(charRepo, statClient, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
 	itemRepo := items.NewItemRepository(db.Pool)
 	itemService := items.NewItemService(itemRepo)
@@ -89,7 +89,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	charService.SetEquipmentProvider(invService)
 
 	questRepo := quests.NewQuestRepository(db.Pool)
-	questService := quests.NewQuestService(questRepo, charService, invService)
+	questService := quests.NewQuestService(questRepo, charService, invService, nil)
 
 	lootRepo := loot.NewLootRepository(db.Pool)
 	lootService := loot.NewLootService(lootRepo)
@@ -343,7 +343,7 @@ func TestDoubleSessionOverride(t *testing.T) {
 
 	statClient := &mockStatClient{}
 	charRepo := character.NewCharacterRepository(db.Pool)
-	charService := character.NewCharacterService(charRepo, statClient, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
@@ -490,14 +490,14 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 
 	statClient := &mockStatClient{}
 	charRepo := character.NewCharacterRepository(db.Pool)
-	charService := character.NewCharacterService(charRepo, statClient, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Pool)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 	charService.SetEquipmentProvider(invService)
 
 	questRepo := quests.NewQuestRepository(db.Pool)
-	questService := quests.NewQuestService(questRepo, charService, invService)
+	questService := quests.NewQuestService(questRepo, charService, invService, nil)
 
 	lootRepo := loot.NewLootRepository(db.Pool)
 	lootService := loot.NewLootService(lootRepo)

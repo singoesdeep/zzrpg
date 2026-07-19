@@ -291,7 +291,7 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	stat := registry.MustResolve[*statHolder](reg, "stat")
 
 	charRepo := character.NewCharacterRepository(db.Pool)
-	p.charService = character.NewCharacterService(charRepo, stat.client, nil)
+	p.charService = character.NewCharacterService(charRepo, stat.client, nil, ic.Bus())
 	if err := registry.Provide(reg, "character", p.charService); err != nil {
 		return err
 	}
@@ -519,7 +519,7 @@ func (questsPlugin) Init(ic plugin.InitContext) error {
 	invService := registry.MustResolve[inventory.InventoryService](reg, "inventory")
 
 	questRepo := quests.NewQuestRepository(db.Pool)
-	questService := quests.NewQuestService(questRepo, charService, invService)
+	questService := quests.NewQuestService(questRepo, charService, invService, ic.Bus())
 	if err := registry.Provide(reg, "quests", questService); err != nil {
 		return err
 	}

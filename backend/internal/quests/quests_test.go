@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 )
@@ -163,7 +164,7 @@ func TestQuestProgressionAndRewards(t *testing.T) {
 	}
 	inventorySvc := &mockInventoryService{}
 
-	service := NewQuestService(repo, charService, inventorySvc)
+	service := NewQuestService(repo, charService, inventorySvc, nil)
 
 	// 1. Create a 2-step Quest Definition
 	questDef := &QuestDefinition{
@@ -248,5 +249,60 @@ func TestQuestProgressionAndRewards(t *testing.T) {
 
 	if len(inventorySvc.addedItems) != 1 || inventorySvc.addedItems[0].ItemDefinitionID != "red_potion_1" || inventorySvc.addedItems[0].Quantity != 5 {
 		t.Errorf("reward item not matched: %+v", inventorySvc.addedItems)
+	}
+}
+
+// TestQuestEmitsLifecycleEvents proves the quest seam: a bus subscriber receives
+// QuestAccepted on accept and QuestCompleted when a single-step quest finishes —
+// without the quest service depending on the consumer.
+func TestQuestEmitsLifecycleEvents(t *testing.T) {
+	repo := newMockQuestRepository()
+	charService := &mockCharService{
+		char: &character.CharacterWithStats{
+			Character: character.Character{ID: 1, Name: "Hero", ClassName: "WARRIOR", Level: 10},
+		},
+	}
+	eventBus := bus.NewInProc(nil)
+	accepted := make(chan QuestAccepted, 1)
+	completed := make(chan QuestCompleted, 1)
+	eventBus.Subscribe(EventQuestAccepted, func(_ context.Context, ev bus.Event) {
+		accepted <- ev.(QuestAccepted)
+	})
+	eventBus.Subscribe(EventQuestCompleted, func(_ context.Context, ev bus.Event) {
+		completed <- ev.(QuestCompleted)
+	})
+
+	service := NewQuestService(repo, charService, &mockInventoryService{}, eventBus)
+
+	def := &QuestDefinition{
+		ID:       "slime_hunt",
+		MinLevel: 1,
+		Steps:    []QuestStep{{Type: "KILL_MOB", Target: "slime", Count: 1}},
+		Rewards:  QuestRewards{Gold: 50, Experience: 100},
+	}
+	_ = service.CreateDefinition(context.Background(), def)
+
+	if err := service.AcceptQuest(context.Background(), 1, "slime_hunt"); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	select {
+	case ev := <-accepted:
+		if ev.CharacterID != 1 || ev.QuestID != "slime_hunt" {
+			t.Errorf("unexpected QuestAccepted: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for QuestAccepted")
+	}
+
+	if err := service.UpdateQuestProgress(context.Background(), 1, "KILL_MOB", "slime", 1); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	select {
+	case ev := <-completed:
+		if ev.CharacterID != 1 || ev.QuestID != "slime_hunt" {
+			t.Errorf("unexpected QuestCompleted: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for QuestCompleted")
 	}
 }
