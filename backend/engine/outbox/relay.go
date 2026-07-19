@@ -14,11 +14,12 @@ import (
 // publishes it, marking the row published. Delivery is at-least-once (a crash
 // between publish and mark re-delivers on the next scan).
 type Relay struct {
-	store    store.Store
-	bus      bus.EventBus
-	log      *slog.Logger
-	decoders map[string]Decoder
-	batch    int
+	store   store.Store
+	bus     bus.EventBus
+	log     *slog.Logger
+	reg     *Registry
+	forward func(context.Context, bus.Event)
+	batch   int
 }
 
 // NewRelay builds a relay over the given store and bus. If log is nil,
@@ -28,18 +29,28 @@ func NewRelay(st store.Store, b bus.EventBus, log *slog.Logger) *Relay {
 		log = slog.Default()
 	}
 	return &Relay{
-		store:    st,
-		bus:      b,
-		log:      log,
-		decoders: make(map[string]Decoder),
-		batch:    100,
+		store: st,
+		bus:   b,
+		log:   log,
+		reg:   NewRegistry(),
+		batch: 100,
 	}
 }
 
 // Register associates an event type name with a decoder so the relay can rebuild
 // the typed event before publishing. Producers register their outbox event types
 // at startup.
-func (r *Relay) Register(name string, d Decoder) { r.decoders[name] = d }
+func (r *Relay) Register(name string, d Decoder) { r.reg.Register(name, d) }
+
+// Registry returns the relay's decoder registry so other consumers (e.g. the
+// cross-node event stream) can reuse the same registrations.
+func (r *Relay) Registry() *Registry { return r.reg }
+
+// SetForwarder installs an optional hook invoked with every event the relay
+// dispatches, after it is published on the local bus. It is used to fan the
+// event out to other nodes (e.g. a Redis stream). A nil forwarder disables
+// forwarding (single-node mode).
+func (r *Relay) SetForwarder(f func(context.Context, bus.Event)) { r.forward = f }
 
 // Dispatch runs one poll cycle: it publishes every currently-undispatched row in
 // insertion order and marks it published, returning the number dispatched. A row
@@ -75,15 +86,17 @@ func (r *Relay) Dispatch(ctx context.Context) (int, error) {
 
 	var dispatched int
 	for _, rec := range records {
-		if decode, ok := r.decoders[rec.eventType]; ok {
-			ev, derr := decode(rec.payload)
-			if derr != nil {
-				r.log.Error("outbox: decode failed, skipping", "event", rec.eventType, "id", rec.id, "error", derr)
-			} else {
-				_ = r.bus.Publish(ctx, ev)
-			}
-		} else {
+		ev, ok, derr := r.reg.Decode(rec.eventType, rec.payload)
+		switch {
+		case derr != nil:
+			r.log.Error("outbox: decode failed, skipping", "event", rec.eventType, "id", rec.id, "error", derr)
+		case !ok:
 			r.log.Warn("outbox: no decoder registered, skipping", "event", rec.eventType, "id", rec.id)
+		default:
+			_ = r.bus.Publish(ctx, ev)
+			if r.forward != nil {
+				r.forward(ctx, ev)
+			}
 		}
 
 		if _, err := r.store.Exec(ctx, `UPDATE outbox SET published_at = now() WHERE id = $1`, rec.id); err != nil {

@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/eventstream"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
@@ -31,6 +33,16 @@ import (
 // idleConfig is the offline/idle reward pack, loaded once from embedded content.
 var idleConfig = content.MustLoadIdle()
 
+// nodeID returns a stable-per-process identifier for this node, used to tag and
+// de-duplicate events on the cross-node stream.
+func nodeID() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "node"
+	}
+	return fmt.Sprintf("%s-%d", host, os.Getpid())
+}
+
 // statHolder wraps the embedded stat client so it can live in the registry even
 // when it is nil (the client fails to load and callers fall back). Storing a
 // possibly-nil interface directly in the registry would make type-assertion on
@@ -50,14 +62,16 @@ func adminOnly(jwtSecret string, h http.Handler) http.Handler {
 // ---------------------------------------------------------------------------
 
 type corePlugin struct {
-	db          *database.DB
-	cache       cache.Cache
-	closeCache  func() error
-	stat        *statHolder
-	hub         *socket.Hub
-	router      *socket.MessageRouter
-	sessionReg  *session.Registry
-	outboxRelay *outbox.Relay
+	db            *database.DB
+	cache         cache.Cache
+	closeCache    func() error
+	stat          *statHolder
+	hub           *socket.Hub
+	router        *socket.MessageRouter
+	sessionReg    *session.Registry
+	outboxRelay   *outbox.Relay
+	eventConsumer *eventstream.Consumer
+	closeStream   func() error
 }
 
 func (p *corePlugin) Meta() plugin.Meta { return plugin.Meta{Name: "core"} }
@@ -107,6 +121,25 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	// grants) onto the bus after commit. Domains register their decoders here.
 	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
 	character.RegisterOutboxDecoders(p.outboxRelay)
+
+	// Optional cross-node event fan-out over Redis Streams. When Redis is
+	// reachable, relay-dispatched events are forwarded to the stream and a
+	// consumer re-injects other nodes' events onto this node's bus; without it
+	// the app runs single-node exactly as before (graceful degradation).
+	nodeID := nodeID()
+	if streamClient, err := eventstream.Dial(ctx, cfg.RedisURL); err != nil {
+		log.Warn("Cross-node event streaming disabled; running single-node", "error", err)
+	} else {
+		pub := eventstream.NewPublisher(streamClient, "", nodeID)
+		p.outboxRelay.SetForwarder(func(fctx context.Context, ev bus.Event) {
+			if err := pub.Publish(fctx, ev); err != nil {
+				log.Error("event fan-out publish failed", "event", ev.Name(), "error", err)
+			}
+		})
+		p.eventConsumer = eventstream.NewConsumer(streamClient, ic.Bus(), p.outboxRelay.Registry(), "", nodeID, log)
+		p.closeStream = streamClient.Close
+		log.Info("Cross-node event streaming enabled", "node", nodeID)
+	}
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {
 		return err
@@ -200,10 +233,16 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 func (p *corePlugin) Start(rc plugin.RunContext) error {
 	go p.hub.Run()
 	go p.outboxRelay.Run(rc.Context(), time.Second)
+	if p.eventConsumer != nil {
+		go p.eventConsumer.Run(rc.Context())
+	}
 	return nil
 }
 
 func (p *corePlugin) Stop(ctx context.Context) error {
+	if p.closeStream != nil {
+		_ = p.closeStream()
+	}
 	if p.closeCache != nil {
 		_ = p.closeCache()
 	}

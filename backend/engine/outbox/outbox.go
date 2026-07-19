@@ -39,7 +39,7 @@ func Append(ctx context.Context, q store.Querier, ev bus.Event) error {
 	return nil
 }
 
-// Decoder reconstructs a typed bus.Event from a stored payload so the relay can
+// Decoder reconstructs a typed bus.Event from a stored payload so a consumer can
 // republish it exactly as the producer emitted it.
 type Decoder func(payload []byte) (bus.Event, error)
 
@@ -53,4 +53,30 @@ func JSONDecoder[T bus.Event]() Decoder {
 		}
 		return ev, nil
 	}
+}
+
+// Registry maps event-type names to decoders. It is shared between the relay
+// (which decodes outbox rows) and the cross-node event stream (which decodes
+// messages from Redis), so a producer registers each event type's decoder once.
+type Registry struct {
+	decoders map[string]Decoder
+}
+
+// NewRegistry returns an empty decoder registry.
+func NewRegistry() *Registry {
+	return &Registry{decoders: make(map[string]Decoder)}
+}
+
+// Register associates an event-type name with its decoder.
+func (r *Registry) Register(name string, d Decoder) { r.decoders[name] = d }
+
+// Decode rebuilds the typed event for name from payload. ok is false when no
+// decoder is registered for name.
+func (r *Registry) Decode(name string, payload []byte) (ev bus.Event, ok bool, err error) {
+	d, found := r.decoders[name]
+	if !found {
+		return nil, false, nil
+	}
+	ev, err = d(payload)
+	return ev, true, err
 }
