@@ -2,6 +2,7 @@ package loot
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
 
@@ -76,5 +77,56 @@ func TestLootRollingLogic(t *testing.T) {
 
 	if len(dummyDrops) != 2 {
 		t.Errorf("expected 2 drops for dummy fallback, got %d", len(dummyDrops))
+	}
+}
+
+// TestLootRollingIsDeterministicWithSeed proves the injected RNG (WithSeed) makes
+// loot rolls reproducible: two services seeded identically must produce the same
+// sequence of drop/quantity outcomes across both the drop-chance and quantity
+// rolls. This is the payoff of making the RNG injectable.
+func TestLootRollingIsDeterministicWithSeed(t *testing.T) {
+	// A 50% table with a wide quantity range exercises both RNG draws per roll.
+	build := func() LootService {
+		s := NewLootService(newMockLootRepository(), WithSeed(42))
+		_ = s.CreateLootTable(context.Background(), &LootTable{
+			ID: "t",
+			Entries: []LootEntry{
+				{ItemDefinitionID: "gold", Rate: 5000, MinQuantity: 1, MaxQuantity: 1000},
+			},
+		})
+		return s
+	}
+
+	// Encode each roll's outcome: -1 for no drop, else the rolled quantity.
+	sequence := func(s LootService) []int32 {
+		out := make([]int32, 0, 30)
+		for i := 0; i < 30; i++ {
+			drops, err := s.RollLoot(context.Background(), "t")
+			if err != nil {
+				t.Fatalf("RollLoot: %v", err)
+			}
+			if len(drops) == 0 {
+				out = append(out, -1)
+			} else {
+				out = append(out, drops[0].Quantity)
+			}
+		}
+		return out
+	}
+
+	a, b := sequence(build()), sequence(build())
+	if !reflect.DeepEqual(a, b) {
+		t.Errorf("same seed produced different sequences:\n a=%v\n b=%v", a, b)
+	}
+	// Guard against a degenerate all-same sequence that would pass trivially.
+	varied := false
+	for _, v := range a {
+		if v != a[0] {
+			varied = true
+			break
+		}
+	}
+	if !varied {
+		t.Fatalf("sequence did not vary, RNG not exercised: %v", a)
 	}
 }

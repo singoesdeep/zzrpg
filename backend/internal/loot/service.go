@@ -22,11 +22,33 @@ type lootService struct {
 	rand   *rand.Rand
 }
 
-func NewLootService(repo LootRepository) LootService {
-	return &lootService{
+// Option configures a lootService at construction.
+type Option func(*lootService)
+
+// WithSeed makes loot rolls deterministic from the given seed instead of the
+// default time-based seed. Useful for reproducible tests and replayable/sharded
+// worlds where the same inputs must yield the same drops.
+func WithSeed(seed int64) Option {
+	return func(s *lootService) { s.rand = rand.New(rand.NewSource(seed)) }
+}
+
+// WithRand injects a fully custom generator. It is still accessed under the
+// service's mutex, so the supplied *rand.Rand need not be concurrency-safe.
+func WithRand(r *rand.Rand) Option {
+	return func(s *lootService) { s.rand = r }
+}
+
+// NewLootService builds a loot service. By default the RNG is seeded from the
+// wall clock; pass WithSeed/WithRand to inject a deterministic generator.
+func NewLootService(repo LootRepository, opts ...Option) LootService {
+	s := &lootService{
 		repo: repo,
 		rand: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *lootService) CreateLootTable(ctx context.Context, lt *LootTable) error {
