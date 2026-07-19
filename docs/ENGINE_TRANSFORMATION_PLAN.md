@@ -36,6 +36,7 @@ The codebase today is a **well-built single game**, not an engine. It has clean 
 - **Graceful degradation** is idiomatic: Redis down → `cache.Noop{}` (`main.go:102`), statclient down → fallback formula (`character/service.go` step 4, `combat/combat.go` step 3).
 - **Concurrency correctness is taken seriously**: per-character `keyedMutex` (`inventory/service.go`), `randMu` around `*rand.Rand` (`loot/service.go`), `DeductHPAndReserveKill` for exactly-once kill credit (`combat/combat.go` step 4).
 - **Cache-aside done right**: `loot.NewCachedRepository` decorator (`main.go:113-114`).
+- **A data-driven formula engine already exists**: the embedded `zzstat` core is JSON-native — a phase/rule stat-transform pipeline plus `EvaluateCombat(formulaJSON)` (`zzstat/bindings/go/zzstat.go:153-293`). The engine does **not** need to build a formula DSL; it needs to *feed* zzstat from JSON content (see §8.4). This materially shrinks the data-driven work.
 
 ### 1.3 Critical anti-patterns (must fix to become an engine)
 
@@ -329,17 +330,19 @@ Vs today's `events.go`: `Handler` returns `error` (retry/DLQ vs the swallow at `
 
 | System | Verdict | Format | Rationale |
 |---|---|---|---|
-| Stat, Class base stats | **Data** | YAML | Hardcoded `character/service.go:52-63` today |
-| Formula (damage, offline, level curve) | **Data + DSL** | DSL exprs in YAML | Designer-editable math; see 8.4 |
-| Loot | **Data** | YAML (already DB-JSONB) | Kill `"dummy_drops"` hardcode |
+| Stat (derived) | **Data → zzstat** | JSON transforms | zzstat pipeline already supports it; coeffs just hardcoded in glue (`client.go:173-183`) |
+| Class base stats | **Data** | YAML | Hardcoded `character/service.go:52-63` today |
+| Formula (damage/stat) | **Data → zzstat** | JSON (`EvaluateCombat` + transforms) | zzstat is the JSON formula engine; §8.4 |
+| Formula (economy: offline, XP curve) | **Data (+ expr)** | JSON constants / `expr` | Outside zzstat's stat/combat domain |
+| Loot | **Data** (already) | DB JSONB | Only table IDs hardcoded at call sites |
 | Item | **Data** (already) | DB JSONB / YAML | `item_definitions` already data-driven ✔ |
 | NPC / Mob | **Data** | YAML | Dummy `9999` hardcoded in `combat` |
-| Quest | **Data** | YAML | Objectives already dynamic; externalize triggers |
-| Skill, Talent, Passive, Upgrade | **Data + DSL** | YAML + formula refs | Effects = modifier lists + expr |
+| Quest | **Data** (already) | DB JSONB | Objectives dynamic; externalize triggers/tags |
+| Skill, Talent, Passive, Upgrade | **Data → zzstat modifiers** | YAML + JSON transforms | Effects = zzstat modifier lists (reuse `Modifier` shape) |
 | Currency, Craft/Recipe, Building, Pet, Guild, Achievement | **Data** | YAML | Pure content, register at load |
 | Dungeon, WorldEvent | **Data + registry** | YAML + scheduler plugin | Content + timed triggers |
 | AI | **Data (behavior tree) + plugin** | YAML BT, Go executor | Simple idle AI = data; complex = plugin |
-| Combat, Idle/Offline progression | **Plugin + DSL** | Go plugin, DSL formulas | Mechanism in code, numbers in data |
+| Combat, Idle/Offline progression | **Plugin + Data** | Go plugin; zzstat/expr formulas | Mechanism in code, numbers in data |
 
 ### 8.2 Hardcoded rules to externalize (with source)
 
@@ -356,9 +359,9 @@ Vs today's `events.go`: `Handler` returns `error` (retry/DLQ vs the swallow at `
 | 9 | `StatGainPerLevel = 2` | `character/leveling.go:4` | progression config; per-class growth |
 | 10 | Level-up applies to fixed `{STR,INT,DEX,CON}` | `character/leveling.go:40` | class growth table (per-stat gains) |
 | 11 | XP curve `level*level*100` | `character/leveling.go:9` | progression config (curve params / expr) |
-| 12 | Fallback derived-stat coeffs (`CON*15`,`INT*10`,`STR*2`,crit `5`) | `character/stats.go:13-19` | stat-formula data (one source shared with Rust) |
-| 13 | Combat hit/dodge formula + 70–99% clamp | `statclient/client.go:222-231` | formula expr + tunable clamp constants |
-| 14 | Crit multiplier `1.5`, variance `±10%` | `statclient/client.go:259,263` | combat-formula config/expr |
+| 12 | Derived-stat coeffs hardcoded in glue (`HP=CON*15`,`ATTACK=STR*2+DEX*0.5`,`CRIT=5`) + Go fallback copy | `statclient/client.go:173-183`, `character/stats.go:13-19` | **JSON stat-formula pack → zzstat transforms** (one source, kills the Go/Rust copy) |
+| 13 | Combat hit/dodge + 70–99% clamp reimplemented in Go, **bypassing zzstat** | `statclient/client.go:220-231` | **route via `zzstat.EvaluateCombat(formulaJSON)`** |
+| 14 | Crit `1.5`, variance `±10%` in the same Go bypass path | `statclient/client.go:255-263` | **combat JSON formula → `EvaluateCombat`** |
 | 15 | WS message types (`CHAT`/`SELECT_CHARACTER`/`COMBAT_ATTACK`) | `main.go:124-265` | plugin-registered message handlers |
 
 > Items/quests/loot **payloads** are already externalized (JSONB, migrations `000003/000005/000006`). The residual hardcoding is *call-site coupling* (#4, #7) and *formulas/constants* (#1-3, #8-14).
@@ -369,17 +372,35 @@ Vs today's `events.go`: `Handler` returns `error` (retry/DLQ vs the swallow at `
 
 ### 8.4 Formula / scripting recommendation
 
-**Recommend a single sandboxed expression DSL — `github.com/expr-lang/expr` — as the one formula language; do NOT introduce Lua for formulas.** Rationale for this Go engine specifically:
+**Primary decision: the engine already ships a data-driven, JSON-native formula substrate — the embedded `zzstat` Rust core — and the plan is to USE it, not build a competing DSL.** This was the missing insight in the first pass. Verified in the bindings (`github.com/singoesdeep/zzstat/bindings/go/zzstat.go`):
 
-1. **The math is expression-shaped, not program-shaped.** Every externalization target (#1-3, #9-14 above) is pure arithmetic over a small typed env (`STR`, `attacker.Attack`, `minutes`). `expr` compiles these directly; a Lua VM is overkill.
-2. **Safe by construction.** `expr` is non-Turing-complete (no loops/IO) → a designer-authored, hot-reloaded formula cannot hang or crash the server. With gopher-lua you must build the sandbox yourself.
-3. **Static typing + compile-once.** `expr` type-checks against a Go struct env at load and compiles to a reusable program — fits the per-attack hot path (`combat.go:162` calls the formula on every attack); a Lua state per call or a shared-locked state does not.
-4. **Kills the drift risk.** `stats.go:8-11` explicitly warns the Go fallback and Rust resolver can diverge — one `expr` formula source consumed by both paths removes the two hand-maintained copies.
+- A **data-driven stat/modifier pipeline**: `RegisterConstantSource` / `RegisterMapSource(map[string]float64)` plus phase/rule transforms `RegisterAdditive` / `RegisterMultiplicative` / `RegisterScaling` / `RegisterClamp` / `RegisterConditional*Transform` (`zzstat.go:153-283`), with a rule vocabulary (`Override/Additive/Multiplicative/Min/Max/MinMax`, `zzstat.go:196-201`). This *is* a designer-tunable derived-stat engine.
+- A **JSON combat-formula evaluator**: `EvaluateCombat(formulaJSON string, attacker, defender, rng) (float64, error)` (`zzstat.go:293`). Combat math is meant to be supplied as JSON, not code.
 
-Reserve Lua/WASM **later and scoped only** to control-flow-heavy behavior (boss AI, scripted world events) — never for numeric formulas. Formula example:
+**The real gap is the Go glue, not a missing engine.** Today `statclient` under-uses zzstat and hardcodes what should be data:
+- `Calculate()` registers the derived-stat formulas with **coefficients baked into Go** — `RegisterScalingTransform("HP", …, "CON", 15.0)`, `ATTACK=STR*2+DEX*0.5`, `CRIT_RATE=5` (`statclient/client.go:173-183`). These constants belong in a JSON stat-formula pack fed into `RegisterScalingTransform` at load, not literals.
+- `CalculateDamage()` **bypasses zzstat entirely** and reimplements hit/dodge/crit/±10%-variance in pure Go with hardcoded constants (`statclient/client.go:220-267`) — `EvaluateCombat`/`formulaJSON` is **never called** (grep-confirmed). This duplicate Go path is exactly the drift risk `stats.go:8-11` warns about.
 
+**Recommendation (revised):**
+1. **Stat & combat formulas → zzstat, sourced from JSON content.** Move the hardcoded coefficients (#12 stat coeffs, #13 hit/dodge, #14 crit/variance) into `content/formulas/*.json` and feed them to zzstat's transform registration and `EvaluateCombat(formulaJSON)`. Route `CalculateDamage` **through** `EvaluateCombat` so there is one formula source, killing the Go/Rust drift. zzstat's compiled Rust pipeline also fits the per-attack hot path (`combat.go:162`) better than any interpreted DSL.
+2. **Non-stat economy math → a light expression evaluator (`github.com/expr-lang/expr`) OR plain config constants.** Offline gains (#1-2), XP curve (#11), loot rates/caps (#3) are outside zzstat's stat/combat domain; keep them as JSON constants where trivial, and reach for `expr` only where a real expression is needed. Do **not** introduce `expr` for stat/combat math — that is zzstat's job.
+3. **Lua/WASM** stays reserved for control-flow behavior (boss AI, world-event scripts) only — never numeric formulas.
+
+Net effect: this **reduces** engine scope. The formula/stat data-driven layer is a *wiring-and-content* task (load JSON → zzstat), not a build-a-DSL task. Content examples:
+
+```json
+// content/formulas/derived_stats.json  (fed to zzstat transforms)
+{ "HP": [{"scale_from":"CON","factor":15.0}],
+  "ATTACK": [{"scale_from":"STR","factor":2.0},{"scale_from":"DEX","factor":0.5}],
+  "CRIT_RATE": [{"constant":5.0}] }
+```
+```json
+// content/formulas/combat.json  (passed to zzstat EvaluateCombat as formulaJSON)
+{ "hit": "clamp(1 - (def.DEX*0.2 + def.dodge)/(atk.level*1.5) + atk.acc, 0.70, 0.99)",
+  "crit_multiplier": 1.5, "variance": 0.10 }
+```
 ```yaml
-# content/formulas/offline.yaml
+// content/formulas/offline.yaml  (economy math — expr or constants, NOT zzstat)
 gold_per_min: "10 + STR * 0.5"
 exp_per_min:  "15 + INT * 0.8"
 loot_roll_chance: 0.50
@@ -457,7 +478,7 @@ Deploy shape: N stateless engine nodes (behind LB), Redis (streams + cache + ses
 **High:**
 - H1. Extract content loader; move class stats (`character/service.go:52-63`) and loot tables to `content/`. 
 - H2. Break `combat` God service: emit `MobKilled` instead of calling loot/quest/inventory directly (A2).
-- H3. Formula DSL; externalize offline-gains (`main.go:161-196`) and leveling.
+- H3. Externalize formulas to JSON: **feed zzstat from content** (stat coeffs `client.go:173-183` → JSON transforms; route `CalculateDamage` through `zzstat.EvaluateCombat` — deletes the Go bypass at `client.go:220-267`); economy math (offline `main.go:161-196`, XP curve) as config/`expr`.
 - H4. Register WS message handlers via plugins (remove `main.go` switch).
 
 - H5. **Unify the `Modifier` concept** into one shared-kernel type (kills the 3× duplication A9); introduce a single `CharacterID` value type (A10) to end the `int32/int64` casts.
@@ -515,6 +536,7 @@ Deploy shape: N stateless engine nodes (behind LB), Redis (streams + cache + ses
 | Anemic model + logic in repos | `character/repository.go:195-265` leveling in a SQL tx | Domain not testable/reusable in isolation |
 | Global singletons | `events.globalBus`, `socket.globalRegistry` | No isolated worlds / clean tests / sharding |
 | Silent economy loss | swallowed errors `combat.go:207,216`, `main.go:190` | Players short-changed with no log/retry/alert |
+| zzstat under-used / bypassed | stat coeffs hardcoded in glue (`client.go:173-183`); `CalculateDamage` reimplements combat in Go, never calls `EvaluateCombat` | Duplicate Go/Rust formula paths → the drift risk `stats.go:8-11` warns of; wastes an already-data-driven asset |
 
 ---
 
