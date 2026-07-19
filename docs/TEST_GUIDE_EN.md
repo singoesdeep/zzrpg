@@ -15,11 +15,12 @@ Run the helper script from the project root to start PostgreSQL and Redis:
 
 ## Step 2: Build the Rust zzstat shared library
 
-Open a terminal and compile the Rust core FFI bindings dynamically linked shared library:
+The Rust `zzstat` core lives in a sibling repository (`github.com/singoesdeep/zzstat`). Open a terminal, switch to it, and compile the FFI shared library:
 ```bash
-cargo build --release -p zzstat-ffi
+cd ../zzstat
+cargo build --release
 ```
-Ensure the library is built at `zzstat/target/release/libzzstat_ffi.so`. The Go backend client will load this dynamically at runtime.
+This produces `../zzstat/target/release/libzzstat_ffi.so`. The Go backend client loads it dynamically at runtime; set `ZZSTAT_LIB_PATH` to point at it if it is not on a standard search path.
 
 ---
 
@@ -28,7 +29,7 @@ Ensure the library is built at `zzstat/target/release/libzzstat_ffi.so`. The Go 
 Open a second terminal, navigate to the `backend/` directory, and run:
 ```bash
 cd backend
-go run ./cmd/server
+ZZSTAT_LIB_PATH=../../zzstat/target/release/libzzstat_ffi.so go run ./cmd/server
 ```
 You should see:
 ```

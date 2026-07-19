@@ -15,11 +15,12 @@ PostgreSQL ve Redis veritabanlarını başlatmak için proje kök dizinindeki ya
 
 ## Adım 2: Rust zzstat Paylaşımlı Kütüphanesini Derleyin
 
-Bir terminal açın ve Rust core FFI bağlayıcı dinamik kütüphanesini derleyin:
+Rust `zzstat` çekirdeği kardeş bir depoda (`github.com/singoesdeep/zzstat`) bulunur. Bir terminal açın, o depoya geçin ve FFI paylaşımlı kütüphanesini derleyin:
 ```bash
-cargo build --release -p zzstat-ffi
+cd ../zzstat
+cargo build --release
 ```
-Kütüphanenin `zzstat/target/release/libzzstat_ffi.so` yolunda derlendiğinden emin olun. Go backend istemcisi çalışma zamanında bu kütüphaneyi dinamik olarak yükleyecektir.
+Bu, `../zzstat/target/release/libzzstat_ffi.so` dosyasını üretir. Go backend istemcisi bu kütüphaneyi çalışma zamanında dinamik olarak yükler; standart arama yollarında değilse `ZZSTAT_LIB_PATH` ile konumunu belirtin.
 
 ---
 
@@ -28,7 +29,7 @@ Kütüphanenin `zzstat/target/release/libzzstat_ffi.so` yolunda derlendiğinden 
 İkinci bir terminal açın, `backend/` dizinine gidin ve sunucuyu çalıştırın:
 ```bash
 cd backend
-go run ./cmd/server
+ZZSTAT_LIB_PATH=../../zzstat/target/release/libzzstat_ffi.so go run ./cmd/server
 ```
 Şu çıktıyı görmelisiniz:
 ```
