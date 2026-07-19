@@ -218,7 +218,7 @@ func (authPlugin) Init(ic plugin.InitContext) error {
 	cfg := ic.Config()
 
 	db := registry.MustResolve[*database.DB](reg, "db")
-	userRepo := auth.NewUserRepository(db.Pool)
+	userRepo := auth.NewUserRepository(db.Store)
 	authService := auth.NewAuthService(userRepo, cfg.JWTSecret)
 
 	mux.HandleFunc("/api/v1/auth/register", auth.RegisterHandler(authService))
@@ -255,7 +255,7 @@ func (itemsPlugin) Init(ic plugin.InitContext) error {
 	jwt := ic.Config().JWTSecret
 
 	db := registry.MustResolve[*database.DB](reg, "db")
-	itemRepo := items.NewItemRepository(db.Pool)
+	itemRepo := items.NewItemRepository(db.Store)
 	itemService := items.NewItemService(itemRepo)
 
 	mux.Handle("POST /api/v1/admin/items", adminOnly(jwt, items.CreateHandler(itemService)))
@@ -293,7 +293,7 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	stat := registry.MustResolve[*statHolder](reg, "stat")
 
 	p.eventBus = ic.Bus()
-	charRepo := character.NewCharacterRepository(db.Pool)
+	charRepo := character.NewCharacterRepository(db.Store)
 	p.charService = character.NewCharacterService(charRepo, stat.client, nil, ic.Bus())
 	if err := registry.Provide(reg, "character", p.charService); err != nil {
 		return err
@@ -474,7 +474,7 @@ func (inventoryPlugin) Init(ic plugin.InitContext) error {
 	db := registry.MustResolve[*database.DB](reg, "db")
 	charService := registry.MustResolve[character.CharacterService](reg, "character")
 
-	invRepo := inventory.NewInventoryRepository(db.Pool)
+	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, ic.Bus())
 	if err := registry.Provide(reg, "inventory", invService); err != nil {
 		return err
@@ -508,7 +508,7 @@ func (lootPlugin) Init(ic plugin.InitContext) error {
 
 	// Loot tables are static config read on every kill, so wrap the repository
 	// in a read-through cache.
-	var lootRepo loot.LootRepository = loot.NewLootRepository(db.Pool)
+	var lootRepo loot.LootRepository = loot.NewLootRepository(db.Store)
 	lootRepo = loot.NewCachedRepository(lootRepo, appCache, 10*time.Minute)
 	lootService := loot.NewLootService(lootRepo)
 	if err := registry.Provide(reg, "loot", lootService); err != nil {
@@ -540,7 +540,7 @@ func (questsPlugin) Init(ic plugin.InitContext) error {
 	charService := registry.MustResolve[character.CharacterService](reg, "character")
 	invService := registry.MustResolve[inventory.InventoryService](reg, "inventory")
 
-	questRepo := quests.NewQuestRepository(db.Pool)
+	questRepo := quests.NewQuestRepository(db.Store)
 	questService := quests.NewQuestService(questRepo, charService, invService, ic.Bus())
 	if err := registry.Provide(reg, "quests", questService); err != nil {
 		return err

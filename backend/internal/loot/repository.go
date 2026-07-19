@@ -6,15 +6,15 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
 type pgLootRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewLootRepository(pool *pgxpool.Pool) LootRepository {
-	return &pgLootRepository{pool: pool}
+func NewLootRepository(db store.Store) LootRepository {
+	return &pgLootRepository{db: db}
 }
 
 func (r *pgLootRepository) CreateLootTable(ctx context.Context, lt *LootTable) error {
@@ -27,7 +27,7 @@ func (r *pgLootRepository) CreateLootTable(ctx context.Context, lt *LootTable) e
 		INSERT INTO loot_tables (id, description, entries)
 		VALUES ($1, $2, $3)
 	`
-	_, err = r.pool.Exec(ctx, query, lt.ID, lt.Description, entriesJSON)
+	_, err = r.db.Exec(ctx, query, lt.ID, lt.Description, entriesJSON)
 	return err
 }
 
@@ -40,7 +40,7 @@ func (r *pgLootRepository) GetLootTable(ctx context.Context, id string) (*LootTa
 	var lt LootTable
 	var entriesBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(&lt.ID, &lt.Description, &entriesBytes)
+	err := r.db.QueryRow(ctx, query, id).Scan(&lt.ID, &lt.Description, &entriesBytes)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrLootTableNotFound
@@ -62,7 +62,7 @@ func (r *pgLootRepository) ListLootTables(ctx context.Context, limit, offset int
 		ORDER BY id ASC
 		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

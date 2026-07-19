@@ -8,73 +8,65 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
 type pgCharacterRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewCharacterRepository(pool *pgxpool.Pool) CharacterRepository {
-	return &pgCharacterRepository{pool: pool}
+func NewCharacterRepository(db store.Store) CharacterRepository {
+	return &pgCharacterRepository{db: db}
 }
 
 func (r *pgCharacterRepository) Create(ctx context.Context, char *Character, baseStats map[string]float64) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
-
-	// Check character limit (max 4 per user)
-	var count int
-	err = tx.QueryRow(ctx, "SELECT COUNT(*) FROM characters WHERE user_id = $1", char.UserID).Scan(&count)
-	if err != nil {
-		return err
-	}
-	if count >= 4 {
-		return ErrCharacterLimitReached
-	}
-
-	// 1. Insert character
-	queryChar := `
-		INSERT INTO characters (user_id, name, class_name)
-		VALUES ($1, $2, $3)
-		RETURNING id, level, experience, gold, last_active_at, created_at, updated_at
-	`
-	err = tx.QueryRow(ctx, queryChar, char.UserID, char.Name, char.ClassName).
-		Scan(&char.ID, &char.Level, &char.Experience, &char.Gold, &char.LastActiveAt, &char.CreatedAt, &char.UpdatedAt)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // name unique violation
-			return ErrCharacterNameTaken
+	return r.db.WithinTx(ctx, func(q store.Querier) error {
+		// Check character limit (max 4 per user)
+		var count int
+		err := q.QueryRow(ctx, "SELECT COUNT(*) FROM characters WHERE user_id = $1", char.UserID).Scan(&count)
+		if err != nil {
+			return err
 		}
-		return err
-	}
+		if count >= 4 {
+			return ErrCharacterLimitReached
+		}
 
-	// 2. Insert initial base stats and empty derived stats
-	baseJSON, err := json.Marshal(baseStats)
-	if err != nil {
-		return err
-	}
+		// 1. Insert character
+		queryChar := `
+			INSERT INTO characters (user_id, name, class_name)
+			VALUES ($1, $2, $3)
+			RETURNING id, level, experience, gold, last_active_at, created_at, updated_at
+		`
+		err = q.QueryRow(ctx, queryChar, char.UserID, char.Name, char.ClassName).
+			Scan(&char.ID, &char.Level, &char.Experience, &char.Gold, &char.LastActiveAt, &char.CreatedAt, &char.UpdatedAt)
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // name unique violation
+				return ErrCharacterNameTaken
+			}
+			return err
+		}
 
-	// Initial derived stats via the shared fallback formula (see stats.go).
-	derivedStats := FallbackDerivedStats(baseStats)
-	derivedJSON, err := json.Marshal(derivedStats)
-	if err != nil {
-		return err
-	}
+		// 2. Insert initial base stats and empty derived stats
+		baseJSON, err := json.Marshal(baseStats)
+		if err != nil {
+			return err
+		}
 
-	queryStats := `
-		INSERT INTO character_stats (character_id, base_stats, derived_stats)
-		VALUES ($1, $2, $3)
-	`
-	_, err = tx.Exec(ctx, queryStats, char.ID, baseJSON, derivedJSON)
-	if err != nil {
-		return err
-	}
+		// Initial derived stats via the shared fallback formula (see stats.go).
+		derivedStats := FallbackDerivedStats(baseStats)
+		derivedJSON, err := json.Marshal(derivedStats)
+		if err != nil {
+			return err
+		}
 
-	return tx.Commit(ctx)
+		queryStats := `
+			INSERT INTO character_stats (character_id, base_stats, derived_stats)
+			VALUES ($1, $2, $3)
+		`
+		_, err = q.Exec(ctx, queryStats, char.ID, baseJSON, derivedJSON)
+		return err
+	})
 }
 
 func (r *pgCharacterRepository) GetByID(ctx context.Context, id int64) (*CharacterWithStats, error) {
@@ -88,7 +80,7 @@ func (r *pgCharacterRepository) GetByID(ctx context.Context, id int64) (*Charact
 	var cws CharacterWithStats
 	var baseBytes, derivedBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&cws.ID, &cws.UserID, &cws.Name, &cws.ClassName, &cws.Level, &cws.Experience, &cws.Gold, &cws.LastActiveAt, &cws.CreatedAt, &cws.UpdatedAt,
 		&baseBytes, &derivedBytes, &cws.Stats.UpdatedAt,
 	)
@@ -117,7 +109,7 @@ func (r *pgCharacterRepository) GetByName(ctx context.Context, name string) (*Ch
 		WHERE name = $1
 	`
 	var c Character
-	err := r.pool.QueryRow(ctx, query, name).Scan(
+	err := r.db.QueryRow(ctx, query, name).Scan(
 		&c.ID, &c.UserID, &c.Name, &c.ClassName, &c.Level, &c.Experience, &c.Gold, &c.LastActiveAt, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err != nil {
@@ -136,7 +128,7 @@ func (r *pgCharacterRepository) ListByUserID(ctx context.Context, userID int64) 
 		WHERE user_id = $1
 		ORDER BY id ASC
 	`
-	rows, err := r.pool.Query(ctx, query, userID)
+	rows, err := r.db.Query(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +158,7 @@ func (r *pgCharacterRepository) UpdateStats(ctx context.Context, charID int64, d
 		SET derived_stats = $1, updated_at = $2
 		WHERE character_id = $3
 	`
-	res, err := r.pool.Exec(ctx, query, derivedJSON, time.Now(), charID)
+	res, err := r.db.Exec(ctx, query, derivedJSON, time.Now(), charID)
 	if err != nil {
 		return err
 	}
@@ -182,7 +174,7 @@ func (r *pgCharacterRepository) UpdateLastActive(ctx context.Context, charID int
 		SET last_active_at = $1
 		WHERE id = $2
 	`
-	res, err := r.pool.Exec(ctx, query, time.Now(), charID)
+	res, err := r.db.Exec(ctx, query, time.Now(), charID)
 	if err != nil {
 		return err
 	}
@@ -193,70 +185,70 @@ func (r *pgCharacterRepository) UpdateLastActive(ctx context.Context, charID int
 }
 
 func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, goldToAdd int64, expToAdd int64) (bool, int32, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return false, 0, err
-	}
-	defer tx.Rollback(ctx)
+	var leveledUp bool
+	var newLevel int32
 
-	// Fetch current level, experience, gold
-	var level int32
-	var experience, gold int64
-	err = tx.QueryRow(ctx, "SELECT level, experience, gold FROM characters WHERE id = $1 FOR UPDATE", charID).
-		Scan(&level, &experience, &gold)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, 0, ErrCharacterNotFound
-		}
-		return false, 0, err
-	}
-
-	newGold := gold + goldToAdd
-	// Progression is a domain rule (see leveling.go), not persistence logic.
-	newLevel, newExp, leveledUp := ApplyExperience(level, experience, expToAdd)
-
-	// Update characters table
-	_, err = tx.Exec(ctx, `
-		UPDATE characters
-		SET level = $1, experience = $2, gold = $3, updated_at = NOW()
-		WHERE id = $4
-	`, newLevel, newExp, newGold, charID)
-	if err != nil {
-		return false, 0, err
-	}
-
-	if leveledUp {
-		// Fetch current base stats
-		var baseBytes []byte
-		err = tx.QueryRow(ctx, "SELECT base_stats FROM character_stats WHERE character_id = $1 FOR UPDATE", charID).Scan(&baseBytes)
+	err := r.db.WithinTx(ctx, func(q store.Querier) error {
+		// Fetch current level, experience, gold
+		var level int32
+		var experience, gold int64
+		err := q.QueryRow(ctx, "SELECT level, experience, gold FROM characters WHERE id = $1 FOR UPDATE", charID).
+			Scan(&level, &experience, &gold)
 		if err != nil {
-			return false, 0, err
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrCharacterNotFound
+			}
+			return err
 		}
 
-		var baseStats map[string]float64
-		if err := json.Unmarshal(baseBytes, &baseStats); err != nil {
-			return false, 0, err
-		}
+		newGold := gold + goldToAdd
+		// Progression is a domain rule (see leveling.go), not persistence logic.
+		var newExp int64
+		newLevel, newExp, leveledUp = ApplyExperience(level, experience, expToAdd)
 
-		// Apply per-level stat gains (domain rule, see leveling.go).
-		ApplyLevelUpStatGains(baseStats, newLevel-level)
-
-		newBaseBytes, err := json.Marshal(baseStats)
+		// Update characters table
+		_, err = q.Exec(ctx, `
+			UPDATE characters
+			SET level = $1, experience = $2, gold = $3, updated_at = NOW()
+			WHERE id = $4
+		`, newLevel, newExp, newGold, charID)
 		if err != nil {
-			return false, 0, err
+			return err
 		}
 
-		_, err = tx.Exec(ctx, `
-			UPDATE character_stats
-			SET base_stats = $1, updated_at = NOW()
-			WHERE character_id = $2
-		`, newBaseBytes, charID)
-		if err != nil {
-			return false, 0, err
-		}
-	}
+		if leveledUp {
+			// Fetch current base stats
+			var baseBytes []byte
+			err = q.QueryRow(ctx, "SELECT base_stats FROM character_stats WHERE character_id = $1 FOR UPDATE", charID).Scan(&baseBytes)
+			if err != nil {
+				return err
+			}
 
-	err = tx.Commit(ctx)
+			var baseStats map[string]float64
+			if err := json.Unmarshal(baseBytes, &baseStats); err != nil {
+				return err
+			}
+
+			// Apply per-level stat gains (domain rule, see leveling.go).
+			ApplyLevelUpStatGains(baseStats, newLevel-level)
+
+			newBaseBytes, err := json.Marshal(baseStats)
+			if err != nil {
+				return err
+			}
+
+			_, err = q.Exec(ctx, `
+				UPDATE character_stats
+				SET base_stats = $1, updated_at = NOW()
+				WHERE character_id = $2
+			`, newBaseBytes, charID)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 	if err != nil {
 		return false, 0, err
 	}

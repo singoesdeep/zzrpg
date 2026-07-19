@@ -7,12 +7,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 )
 
 type DB struct {
-	Pool *pgxpool.Pool
-	log  *slog.Logger
+	Pool  *pgxpool.Pool
+	Store store.Store
+	log   *slog.Logger
 }
 
 func NewConnectionPool(cfg *config.Config, log *slog.Logger) (*DB, error) {
@@ -42,9 +44,10 @@ func NewConnectionPool(cfg *config.Config, log *slog.Logger) (*DB, error) {
 
 	log.Info("Successfully connected to PostgreSQL")
 	return &DB{
-		Pool: pool,
-		log:  log,
-		}, nil
+		Pool:  pool,
+		Store: store.New(pool),
+		log:   log,
+	}, nil
 }
 
 func (db *DB) Close() {

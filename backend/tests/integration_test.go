@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
@@ -68,30 +69,30 @@ func TestEndToEndGameLoop(t *testing.T) {
 	}
 
 	// 2. Initialize all modules in-memory
-	db := &database.DB{Pool: pool}
+	db := &database.DB{Pool: pool, Store: store.New(pool)}
 	jwtSecret := "integration-test-secret-321-secure"
 
-	authRepo := auth.NewUserRepository(db.Pool)
+	authRepo := auth.NewUserRepository(db.Store)
 	authService := auth.NewAuthService(authRepo, jwtSecret)
 
 	statClient := &mockStatClient{}
 
-	charRepo := character.NewCharacterRepository(db.Pool)
+	charRepo := character.NewCharacterRepository(db.Store)
 	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
-	itemRepo := items.NewItemRepository(db.Pool)
+	itemRepo := items.NewItemRepository(db.Store)
 	itemService := items.NewItemService(itemRepo)
 	_ = itemService
 
-	invRepo := inventory.NewInventoryRepository(db.Pool)
+	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 
 	charService.SetEquipmentProvider(invService)
 
-	questRepo := quests.NewQuestRepository(db.Pool)
+	questRepo := quests.NewQuestRepository(db.Store)
 	questService := quests.NewQuestService(questRepo, charService, invService, nil)
 
-	lootRepo := loot.NewLootRepository(db.Pool)
+	lootRepo := loot.NewLootRepository(db.Store)
 	lootService := loot.NewLootService(lootRepo)
 
 	hub := socket.NewHub()
@@ -335,17 +336,17 @@ func TestDoubleSessionOverride(t *testing.T) {
 		t.Skip("PostgreSQL running but ping failed, skipping double session test.")
 	}
 
-	db := &database.DB{Pool: pool}
+	db := &database.DB{Pool: pool, Store: store.New(pool)}
 	jwtSecret := "double-session-secret"
 
-	authRepo := auth.NewUserRepository(db.Pool)
+	authRepo := auth.NewUserRepository(db.Store)
 	authService := auth.NewAuthService(authRepo, jwtSecret)
 
 	statClient := &mockStatClient{}
-	charRepo := character.NewCharacterRepository(db.Pool)
+	charRepo := character.NewCharacterRepository(db.Store)
 	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
-	invRepo := inventory.NewInventoryRepository(db.Pool)
+	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 	charService.SetEquipmentProvider(invService)
 
@@ -482,24 +483,24 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 		t.Skip("PostgreSQL running but ping failed, skipping dead status test.")
 	}
 
-	db := &database.DB{Pool: pool}
+	db := &database.DB{Pool: pool, Store: store.New(pool)}
 	jwtSecret := "dead-status-secret"
 
-	authRepo := auth.NewUserRepository(db.Pool)
+	authRepo := auth.NewUserRepository(db.Store)
 	authService := auth.NewAuthService(authRepo, jwtSecret)
 
 	statClient := &mockStatClient{}
-	charRepo := character.NewCharacterRepository(db.Pool)
+	charRepo := character.NewCharacterRepository(db.Store)
 	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
 
-	invRepo := inventory.NewInventoryRepository(db.Pool)
+	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
 	charService.SetEquipmentProvider(invService)
 
-	questRepo := quests.NewQuestRepository(db.Pool)
+	questRepo := quests.NewQuestRepository(db.Store)
 	questService := quests.NewQuestService(questRepo, charService, invService, nil)
 
-	lootRepo := loot.NewLootRepository(db.Pool)
+	lootRepo := loot.NewLootRepository(db.Store)
 	lootService := loot.NewLootService(lootRepo)
 
 	hub := socket.NewHub()

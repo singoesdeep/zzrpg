@@ -6,16 +6,16 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 )
 
 type pgInventoryRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewInventoryRepository(pool *pgxpool.Pool) InventoryRepository {
-	return &pgInventoryRepository{pool: pool}
+func NewInventoryRepository(db store.Store) InventoryRepository {
+	return &pgInventoryRepository{db: db}
 }
 
 func (r *pgInventoryRepository) GetBySlot(ctx context.Context, charID int32, slot int32) (*InventoryItem, error) {
@@ -30,7 +30,7 @@ func (r *pgInventoryRepository) GetBySlot(ctx context.Context, charID int32, slo
 	item.ItemDetails = &items.ItemDefinition{}
 	var customModsBytes, statsModsBytes, metaBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, charID, slot).Scan(
+	err := r.db.QueryRow(ctx, query, charID, slot).Scan(
 		&item.ID, &item.CharacterID, &item.SlotIndex, &item.ItemDefinitionID, &item.Quantity, &item.Durability, &customModsBytes, &item.CreatedAt, &item.UpdatedAt,
 		&item.ItemDetails.Name, &item.ItemDetails.Description, &item.ItemDetails.SlotType, &item.ItemDetails.MinLevel, &item.ItemDetails.ClassRestrictions, &statsModsBytes, &metaBytes,
 	)
@@ -64,7 +64,7 @@ func (r *pgInventoryRepository) ListByCharacter(ctx context.Context, charID int3
 		WHERE i.character_id = $1
 		ORDER BY i.slot_index ASC
 	`
-	rows, err := r.pool.Query(ctx, query, charID)
+	rows, err := r.db.Query(ctx, query, charID)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (r *pgInventoryRepository) Move(ctx context.Context, charID int32, fromSlot
 		SET slot_index = $1, updated_at = NOW()
 		WHERE character_id = $2 AND slot_index = $3
 	`
-	res, err := r.pool.Exec(ctx, query, toSlot, charID, fromSlot)
+	res, err := r.db.Exec(ctx, query, toSlot, charID, fromSlot)
 	if err != nil {
 		return err
 	}
@@ -118,29 +118,21 @@ func (r *pgInventoryRepository) Move(ctx context.Context, charID int32, fromSlot
 }
 
 func (r *pgInventoryRepository) Swap(ctx context.Context, charID int32, slotA, slotB int32) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx)
+	return r.db.WithinTx(ctx, func(q store.Querier) error {
+		// Temporal helper slot (-99) to avoid unique key violation during swap
+		_, err := q.Exec(ctx, "UPDATE inventories SET slot_index = -99 WHERE character_id = $1 AND slot_index = $2", charID, slotA)
+		if err != nil {
+			return err
+		}
 
-	// Temporal helper slot (-99) to avoid unique key violation during swap
-	_, err = tx.Exec(ctx, "UPDATE inventories SET slot_index = -99 WHERE character_id = $1 AND slot_index = $2", charID, slotA)
-	if err != nil {
-		return err
-	}
+		_, err = q.Exec(ctx, "UPDATE inventories SET slot_index = $1 WHERE character_id = $2 AND slot_index = $3", slotA, charID, slotB)
+		if err != nil {
+			return err
+		}
 
-	_, err = tx.Exec(ctx, "UPDATE inventories SET slot_index = $1 WHERE character_id = $2 AND slot_index = $3", slotA, charID, slotB)
-	if err != nil {
+		_, err = q.Exec(ctx, "UPDATE inventories SET slot_index = $1 WHERE character_id = $2 AND slot_index = -99", slotB, charID)
 		return err
-	}
-
-	_, err = tx.Exec(ctx, "UPDATE inventories SET slot_index = $1 WHERE character_id = $2 AND slot_index = -99", slotB, charID)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit(ctx)
+	})
 }
 
 func (r *pgInventoryRepository) AddItem(ctx context.Context, item *InventoryItem) error {
@@ -154,14 +146,14 @@ func (r *pgInventoryRepository) AddItem(ctx context.Context, item *InventoryItem
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, created_at, updated_at
 	`
-	err = r.pool.QueryRow(ctx, query, item.CharacterID, item.SlotIndex, item.ItemDefinitionID, item.Quantity, item.Durability, modsJSON).
+	err = r.db.QueryRow(ctx, query, item.CharacterID, item.SlotIndex, item.ItemDefinitionID, item.Quantity, item.Durability, modsJSON).
 		Scan(&item.ID, &item.CreatedAt, &item.UpdatedAt)
 	return err
 }
 
 func (r *pgInventoryRepository) RemoveItem(ctx context.Context, id int64) error {
 	query := `DELETE FROM inventories WHERE id = $1`
-	res, err := r.pool.Exec(ctx, query, id)
+	res, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}

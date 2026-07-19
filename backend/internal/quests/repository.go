@@ -6,15 +6,15 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
 type pgQuestRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewQuestRepository(pool *pgxpool.Pool) QuestRepository {
-	return &pgQuestRepository{pool: pool}
+func NewQuestRepository(db store.Store) QuestRepository {
+	return &pgQuestRepository{db: db}
 }
 
 func (r *pgQuestRepository) CreateDefinition(ctx context.Context, q *QuestDefinition) error {
@@ -36,7 +36,7 @@ func (r *pgQuestRepository) CreateDefinition(ctx context.Context, q *QuestDefini
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING created_at
 	`
-	return r.pool.QueryRow(ctx, query, q.ID, q.Title, q.Description, q.MinLevel, stepsJSON, rewardsJSON, metaJSON).Scan(&q.CreatedAt)
+	return r.db.QueryRow(ctx, query, q.ID, q.Title, q.Description, q.MinLevel, stepsJSON, rewardsJSON, metaJSON).Scan(&q.CreatedAt)
 }
 
 func (r *pgQuestRepository) GetDefinition(ctx context.Context, id string) (*QuestDefinition, error) {
@@ -48,7 +48,7 @@ func (r *pgQuestRepository) GetDefinition(ctx context.Context, id string) (*Ques
 	var q QuestDefinition
 	var stepsBytes, rewardsBytes, metaBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&q.ID, &q.Title, &q.Description, &q.MinLevel, &stepsBytes, &rewardsBytes, &metaBytes, &q.CreatedAt,
 	)
 	if err != nil {
@@ -78,7 +78,7 @@ func (r *pgQuestRepository) ListDefinitions(ctx context.Context, limit, offset i
 		ORDER BY id ASC
 		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func (r *pgQuestRepository) AcceptQuest(ctx context.Context, charID int32, quest
 		INSERT INTO character_quests (character_id, quest_id, status, current_step_index, progress)
 		VALUES ($1, $2, 'ACTIVE', 0, $3)
 	`
-	_, err = r.pool.Exec(ctx, query, charID, questID, progJSON)
+	_, err = r.db.Exec(ctx, query, charID, questID, progJSON)
 	return err
 }
 
@@ -138,7 +138,7 @@ func (r *pgQuestRepository) GetCharacterQuest(ctx context.Context, charID int32,
 	cq.Definition = &QuestDefinition{}
 	var progBytes, stepsBytes, rewardsBytes, metaBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, charID, questID).Scan(
+	err := r.db.QueryRow(ctx, query, charID, questID).Scan(
 		&cq.CharacterID, &cq.QuestID, &cq.Status, &cq.CurrentStepIndex, &progBytes, &cq.UpdatedAt,
 		&cq.Definition.Title, &cq.Definition.Description, &cq.Definition.MinLevel, &stepsBytes, &rewardsBytes, &metaBytes, &cq.Definition.CreatedAt,
 	)
@@ -175,7 +175,7 @@ func (r *pgQuestRepository) ListCharacterQuests(ctx context.Context, charID int3
 		WHERE cq.character_id = $1
 		ORDER BY cq.updated_at DESC
 	`
-	rows, err := r.pool.Query(ctx, query, charID)
+	rows, err := r.db.Query(ctx, query, charID)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (r *pgQuestRepository) UpdateProgress(ctx context.Context, charID int32, qu
 		SET current_step_index = $1, progress = $2, updated_at = NOW()
 		WHERE character_id = $3 AND quest_id = $4 AND status = 'ACTIVE'
 	`
-	res, err := r.pool.Exec(ctx, query, currentStep, progJSON, charID, questID)
+	res, err := r.db.Exec(ctx, query, currentStep, progJSON, charID, questID)
 	if err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func (r *pgQuestRepository) CompleteQuest(ctx context.Context, charID int32, que
 		SET status = 'COMPLETED', updated_at = NOW()
 		WHERE character_id = $1 AND quest_id = $2 AND status = 'ACTIVE'
 	`
-	res, err := r.pool.Exec(ctx, query, charID, questID)
+	res, err := r.db.Exec(ctx, query, charID, questID)
 	if err != nil {
 		return err
 	}

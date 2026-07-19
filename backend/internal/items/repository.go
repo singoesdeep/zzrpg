@@ -7,15 +7,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
 type pgItemRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewItemRepository(pool *pgxpool.Pool) ItemRepository {
-	return &pgItemRepository{pool: pool}
+func NewItemRepository(db store.Store) ItemRepository {
+	return &pgItemRepository{db: db}
 }
 
 func (r *pgItemRepository) Create(ctx context.Context, item *ItemDefinition) error {
@@ -33,7 +33,7 @@ func (r *pgItemRepository) Create(ctx context.Context, item *ItemDefinition) err
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING created_at
 	`
-	err = r.pool.QueryRow(ctx, query, item.ID, item.Name, item.Description, item.SlotType, item.MinLevel, item.ClassRestrictions, modsJSON, metaJSON).
+	err = r.db.QueryRow(ctx, query, item.ID, item.Name, item.Description, item.SlotType, item.MinLevel, item.ClassRestrictions, modsJSON, metaJSON).
 		Scan(&item.CreatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -60,7 +60,7 @@ func (r *pgItemRepository) Update(ctx context.Context, item *ItemDefinition) err
 		SET name = $1, description = $2, slot_type = $3, min_level = $4, class_restrictions = $5, stats_modifiers = $6, metadata = $7
 		WHERE id = $8
 	`
-	res, err := r.pool.Exec(ctx, query, item.Name, item.Description, item.SlotType, item.MinLevel, item.ClassRestrictions, modsJSON, metaJSON, item.ID)
+	res, err := r.db.Exec(ctx, query, item.Name, item.Description, item.SlotType, item.MinLevel, item.ClassRestrictions, modsJSON, metaJSON, item.ID)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (r *pgItemRepository) GetByID(ctx context.Context, id string) (*ItemDefinit
 	var item ItemDefinition
 	var modsBytes, metaBytes []byte
 
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err := r.db.QueryRow(ctx, query, id).Scan(
 		&item.ID, &item.Name, &item.Description, &item.SlotType, &item.MinLevel, &item.ClassRestrictions, &modsBytes, &metaBytes, &item.CreatedAt,
 	)
 	if err != nil {
@@ -106,7 +106,7 @@ func (r *pgItemRepository) List(ctx context.Context, limit, offset int) ([]ItemD
 		ORDER BY id ASC
 		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query, limit, offset)
+	rows, err := r.db.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (r *pgItemRepository) List(ctx context.Context, limit, offset int) ([]ItemD
 
 func (r *pgItemRepository) Delete(ctx context.Context, id string) error {
 	query := `DELETE FROM item_definitions WHERE id = $1`
-	res, err := r.pool.Exec(ctx, query, id)
+	res, err := r.db.Exec(ctx, query, id)
 	if err != nil {
 		return err
 	}

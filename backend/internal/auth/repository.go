@@ -6,15 +6,15 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
 type pgUserRepository struct {
-	pool *pgxpool.Pool
+	db store.Store
 }
 
-func NewUserRepository(pool *pgxpool.Pool) UserRepository {
-	return &pgUserRepository{pool: pool}
+func NewUserRepository(db store.Store) UserRepository {
+	return &pgUserRepository{db: db}
 }
 
 func (r *pgUserRepository) Create(ctx context.Context, user *User) error {
@@ -23,7 +23,7 @@ func (r *pgUserRepository) Create(ctx context.Context, user *User) error {
 		VALUES ($1, $2, $3)
 		RETURNING id, created_at, updated_at
 	`
-	err := r.pool.QueryRow(ctx, query, user.Username, user.Email, user.PasswordHash).
+	err := r.db.QueryRow(ctx, query, user.Username, user.Email, user.PasswordHash).
 		Scan(&user.ID, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -42,7 +42,7 @@ func (r *pgUserRepository) GetByUsername(ctx context.Context, username string) (
 		WHERE username = $1
 	`
 	var u User
-	err := r.pool.QueryRow(ctx, query, username).
+	err := r.db.QueryRow(ctx, query, username).
 		Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -60,7 +60,7 @@ func (r *pgUserRepository) GetByEmail(ctx context.Context, email string) (*User,
 		WHERE email = $1
 	`
 	var u User
-	err := r.pool.QueryRow(ctx, query, email).
+	err := r.db.QueryRow(ctx, query, email).
 		Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
