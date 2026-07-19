@@ -5,7 +5,13 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/singoesdeep/zzrpg/backend/content"
 )
+
+// fallbackTables is the embedded loot pack used when the DB has no row for a
+// requested table (e.g. the training dummy's drops). Loaded once at startup.
+var fallbackTables = content.MustLoadLootTables()
 
 type LootService interface {
 	CreateLootTable(ctx context.Context, lt *LootTable) error
@@ -62,43 +68,49 @@ func (s *lootService) ListLootTables(ctx context.Context, limit, offset int) ([]
 func (s *lootService) RollLoot(ctx context.Context, tableID string) ([]DroppedItem, error) {
 	lt, err := s.repo.GetLootTable(ctx, tableID)
 	if err != nil {
-		// Mock fallback if table not found in database (e.g. for default testing dummy)
-		if tableID == "dummy_drops" {
-			return []DroppedItem{
-				{ItemDefinitionID: "gold", Quantity: int32(s.rollIntn(41) + 10)}, // 10..50 gold
-				{ItemDefinitionID: "dragon_sword_0", Quantity: 1},                // 100% rate fallback sword
-			}, nil
+		// Fall back to an embedded content table if one is defined for this ID
+		// (e.g. the training dummy's drops when the DB has no row yet); other
+		// missing tables still surface the repo error.
+		ct, ok := fallbackTables[tableID]
+		if !ok {
+			return nil, err
 		}
-		return nil, err
+		var drops []DroppedItem
+		for _, e := range ct.Entries {
+			if d, ok := s.rollEntry(e.ItemDefinitionID, e.Rate, e.MinQuantity, e.MaxQuantity); ok {
+				drops = append(drops, d)
+			}
+		}
+		return drops, nil
 	}
 
 	var drops []DroppedItem
-	for _, entry := range lt.Entries {
-		roll := s.roll31n(10000)
-		if roll < entry.Rate {
-			qty := entry.MinQuantity
-			if entry.MaxQuantity > entry.MinQuantity {
-				qty = entry.MinQuantity + s.roll31n(entry.MaxQuantity-entry.MinQuantity+1)
-			}
-			drops = append(drops, DroppedItem{
-				ItemDefinitionID: entry.ItemDefinitionID,
-				Quantity:         qty,
-			})
+	for _, e := range lt.Entries {
+		if d, ok := s.rollEntry(e.ItemDefinitionID, e.Rate, e.MinQuantity, e.MaxQuantity); ok {
+			drops = append(drops, d)
 		}
 	}
 
 	return drops, nil
 }
 
-// roll31n / rollIntn serialize access to the non-thread-safe *rand.Rand.
+// rollEntry decides one drop rule: it drops with probability rate/10000, in a
+// quantity uniformly drawn from [minQty, maxQty]. Shared by the DB and fallback
+// paths so both roll identically.
+func (s *lootService) rollEntry(itemID string, rate, minQty, maxQty int32) (DroppedItem, bool) {
+	if s.roll31n(10000) >= rate {
+		return DroppedItem{}, false
+	}
+	qty := minQty
+	if maxQty > minQty {
+		qty = minQty + s.roll31n(maxQty-minQty+1)
+	}
+	return DroppedItem{ItemDefinitionID: itemID, Quantity: qty}, true
+}
+
+// roll31n serializes access to the non-thread-safe *rand.Rand.
 func (s *lootService) roll31n(n int32) int32 {
 	s.randMu.Lock()
 	defer s.randMu.Unlock()
 	return s.rand.Int31n(n)
-}
-
-func (s *lootService) rollIntn(n int) int {
-	s.randMu.Lock()
-	defer s.randMu.Unlock()
-	return s.rand.Intn(n)
 }

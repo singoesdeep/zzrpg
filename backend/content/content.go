@@ -11,7 +11,7 @@ import (
 	"fmt"
 )
 
-//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json loot/tables.json
 var files embed.FS
 
 // StatTerm is one additive term of a derived stat. A term with an empty Source
@@ -89,6 +89,25 @@ type IdleConfig struct {
 	MaxRolls    int          `json:"max_rolls"`
 }
 
+// LootEntry is one drop rule: an item that drops with probability Rate/10000,
+// in a quantity uniformly drawn from [MinQuantity, MaxQuantity]. Mirrors
+// loot.LootEntry as plain data (content must not import the loot package).
+type LootEntry struct {
+	ItemDefinitionID string `json:"item_definition_id"`
+	Rate             int32  `json:"rate"`
+	MinQuantity      int32  `json:"min_quantity"`
+	MaxQuantity      int32  `json:"max_quantity"`
+}
+
+// LootTable is an ordered list of drop rules.
+type LootTable struct {
+	Entries []LootEntry `json:"entries"`
+}
+
+// LootTables is the fallback loot pack keyed by table ID, used when the DB has
+// no row for a table (e.g. the training dummy's drops).
+type LootTables map[string]LootTable
+
 // LoadDerivedStats reads the embedded derived-stat formula pack.
 func LoadDerivedStats() (*DerivedStats, error) {
 	raw, err := files.ReadFile("formulas/derived_stats.json")
@@ -137,6 +156,28 @@ func LoadMobs() (*Mobs, error) {
 		return nil, fmt.Errorf("parse mobs.json: %w", err)
 	}
 	return &m, nil
+}
+
+// LoadLootTables reads the embedded fallback loot-table pack.
+func LoadLootTables() (LootTables, error) {
+	raw, err := files.ReadFile("loot/tables.json")
+	if err != nil {
+		return nil, fmt.Errorf("read tables.json: %w", err)
+	}
+	var t LootTables
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return nil, fmt.Errorf("parse tables.json: %w", err)
+	}
+	return t, nil
+}
+
+// MustLoadLootTables is LoadLootTables but panics on error.
+func MustLoadLootTables() LootTables {
+	t, err := LoadLootTables()
+	if err != nil {
+		panic(err)
+	}
+	return t
 }
 
 // LoadIdle reads the embedded offline/idle reward config pack.

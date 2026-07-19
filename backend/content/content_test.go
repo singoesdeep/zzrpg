@@ -106,6 +106,33 @@ func TestIdleConfigMatchesLegacyHardcodes(t *testing.T) {
 	}
 }
 
+// TestLootFallbackMatchesLegacyHardcodes pins the dummy_drops fallback table to
+// the values previously hardcoded in loot.RollLoot (10..50 gold at 100%, one
+// dragon_sword_0 at 100%).
+func TestLootFallbackMatchesLegacyHardcodes(t *testing.T) {
+	tables, err := LoadLootTables()
+	if err != nil {
+		t.Fatalf("LoadLootTables: %v", err)
+	}
+
+	dummy, ok := tables["dummy_drops"]
+	if !ok {
+		t.Fatal("dummy_drops fallback table missing")
+	}
+	want := []LootEntry{
+		{ItemDefinitionID: "gold", Rate: 10000, MinQuantity: 10, MaxQuantity: 50},
+		{ItemDefinitionID: "dragon_sword_0", Rate: 10000, MinQuantity: 1, MaxQuantity: 1},
+	}
+	if len(dummy.Entries) != len(want) {
+		t.Fatalf("dummy_drops: got %d entries, want %d", len(dummy.Entries), len(want))
+	}
+	for i, e := range want {
+		if dummy.Entries[i] != e {
+			t.Errorf("entry %d: got %+v, want %+v", i, dummy.Entries[i], e)
+		}
+	}
+}
+
 func TestClassesMatchLegacyStats(t *testing.T) {
 	classes, err := LoadClasses()
 	if err != nil {

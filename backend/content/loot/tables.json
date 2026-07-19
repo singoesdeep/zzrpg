@@ -1,0 +1,8 @@
+{
+  "dummy_drops": {
+    "entries": [
+      { "item_definition_id": "gold", "rate": 10000, "min_quantity": 10, "max_quantity": 50 },
+      { "item_definition_id": "dragon_sword_0", "rate": 10000, "min_quantity": 1, "max_quantity": 1 }
+    ]
+  }
+}
