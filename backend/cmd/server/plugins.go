@@ -11,10 +11,12 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/eventlog"
 	"github.com/singoesdeep/zzrpg/backend/engine/eventstream"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
+	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
@@ -129,6 +131,9 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	quests.RegisterEventDecoders(decoders)
 	inventory.RegisterEventDecoders(decoders)
 	loot.RegisterEventDecoders(decoders)
+	if err := registry.Provide(reg, "eventDecoders", decoders); err != nil {
+		return err
+	}
 
 	// Optional cross-node event fan-out over Redis Streams. When Redis is
 	// reachable, EVERY event published on the (fanout) bus is broadcast to the
@@ -342,6 +347,8 @@ type characterPlugin struct {
 	invService  inventory.InventoryService
 	eventBus    bus.EventBus
 	sessionReg  *session.Registry
+	store       store.Store
+	decoders    *outbox.Registry
 }
 
 func (p *characterPlugin) Meta() plugin.Meta {
@@ -357,6 +364,8 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	db := registry.MustResolve[*database.DB](reg, "db")
 	stat := registry.MustResolve[*statHolder](reg, "stat")
 	p.sessionReg = registry.MustResolve[*session.Registry](reg, "session")
+	p.store = db.Store
+	p.decoders = registry.MustResolve[*outbox.Registry](reg, "eventDecoders")
 
 	p.eventBus = ic.Bus()
 	charRepo := character.NewCharacterRepository(db.Store)
@@ -508,6 +517,30 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 				}
 			}
 		}
+
+		// Replay the character's history since it was last active so the
+		// reconnecting client can catch up on what happened while away (e.g. the
+		// offline rewards just granted above are recorded in the event_log).
+		if p.decoders != nil {
+			recorded, rerr := eventlog.Replay(context.Background(), p.store, p.decoders,
+				eventlog.CharacterStream(payload.CharacterID), char.LastActiveAt)
+			if rerr == nil && len(recorded) > 0 {
+				events := make([]map[string]interface{}, 0, len(recorded))
+				for _, r := range recorded {
+					events = append(events, map[string]interface{}{
+						"type":        r.Event.Name(),
+						"occurred_at": r.OccurredAt,
+						"payload":     r.Event,
+					})
+				}
+				awayPkt, _ := json.Marshal(map[string]interface{}{
+					"type":    "AWAY_EVENTS",
+					"payload": map[string]interface{}{"events": events},
+				})
+				client.Send <- awayPkt
+			}
+		}
+
 		// Refresh LastActiveAt so it ticks from now.
 		_ = p.charService.UpdateLastActive(context.Background(), payload.CharacterID)
 	}

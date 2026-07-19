@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/eventlog"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
@@ -828,5 +829,83 @@ func TestOutboxDispatchesRewardEvents(t *testing.T) {
 		case <-deadline:
 			t.Fatal("timed out waiting for our RewardsGranted from the relay")
 		}
+	}
+}
+
+// TestEventLogReplay proves the append-only event_log + replay against live
+// Postgres: AddRewards records RewardsGranted in the character's stream (in the
+// same tx), and Replay returns it for a `since` before the write but nothing for
+// a `since` after it. Requires PostgreSQL.
+func TestEventLogReplay(t *testing.T) {
+	dbURL := "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skip("PostgreSQL not accessible, skipping event_log replay test.")
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("PostgreSQL running but ping failed, skipping event_log replay test.")
+	}
+
+	// Self-sufficient schema for the tables this test touches.
+	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS event_log (
+		id BIGSERIAL PRIMARY KEY, stream TEXT NOT NULL, event_type TEXT NOT NULL,
+		payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
+	if err != nil {
+		t.Fatalf("ensure event_log: %v", err)
+	}
+	_, _ = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS outbox (
+		id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, payload JSONB NOT NULL,
+		occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), published_at TIMESTAMPTZ)`)
+
+	st := store.New(pool)
+	authRepo := auth.NewUserRepository(st)
+	authService := auth.NewAuthService(authRepo, "elog-test-secret-0000000000000")
+	uname := "elog_" + time.Now().Format("150405.000000")
+	user, err := authService.Register(ctx, uname, uname+"@test.com", "securepassword123")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	charRepo := character.NewCharacterRepository(st)
+	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil)
+	charName := fmt.Sprintf("El%d", time.Now().UnixNano()%100000000000)
+	char, err := charService.Create(ctx, user.ID, charName, "WARRIOR")
+	if err != nil {
+		t.Fatalf("create character: %v", err)
+	}
+
+	before := time.Now().Add(-time.Second)
+	if _, _, err := charService.AddRewards(ctx, char.ID, 30, 60); err != nil {
+		t.Fatalf("add rewards: %v", err)
+	}
+	after := time.Now().Add(time.Second)
+
+	reg := outbox.NewRegistry()
+	character.RegisterEventDecoders(reg)
+	stream := eventlog.CharacterStream(char.ID)
+
+	// Replay since `before` must include the RewardsGranted just written.
+	got, err := eventlog.Replay(ctx, st, reg, stream, before)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	var found bool
+	for _, r := range got {
+		if rg, ok := r.Event.(character.RewardsGranted); ok && rg.CharacterID == char.ID && rg.Gold == 30 && rg.Exp == 60 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("replay since `before` did not return the RewardsGranted event; got %d events", len(got))
+	}
+
+	// Replay since `after` must return nothing for this character.
+	later, err := eventlog.Replay(ctx, st, reg, stream, after)
+	if err != nil {
+		t.Fatalf("replay (after): %v", err)
+	}
+	if len(later) != 0 {
+		t.Errorf("replay since `after` should be empty, got %d events", len(later))
 	}
 }

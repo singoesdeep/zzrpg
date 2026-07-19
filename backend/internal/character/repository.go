@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/singoesdeep/zzrpg/backend/engine/eventlog"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
@@ -250,12 +251,22 @@ func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, go
 
 		// Record the domain events in the SAME transaction as the state change,
 		// so the reward (and any level-up) can never be lost or emitted without
-		// the write actually committing. The relay dispatches them after commit.
-		if err := outbox.Append(ctx, q, RewardsGranted{CharacterID: charID, Gold: goldToAdd, Exp: expToAdd}); err != nil {
+		// the write actually committing. The outbox drives post-commit dispatch;
+		// the event_log is the durable per-character history for replay.
+		stream := eventlog.CharacterStream(charID)
+		rewarded := RewardsGranted{CharacterID: charID, Gold: goldToAdd, Exp: expToAdd}
+		if err := outbox.Append(ctx, q, rewarded); err != nil {
+			return err
+		}
+		if err := eventlog.Append(ctx, q, stream, rewarded); err != nil {
 			return err
 		}
 		if leveledUp {
-			if err := outbox.Append(ctx, q, CharacterLeveledUp{CharacterID: charID, NewLevel: newLevel}); err != nil {
+			leveled := CharacterLeveledUp{CharacterID: charID, NewLevel: newLevel}
+			if err := outbox.Append(ctx, q, leveled); err != nil {
+				return err
+			}
+			if err := eventlog.Append(ctx, q, stream, leveled); err != nil {
 				return err
 			}
 		}
