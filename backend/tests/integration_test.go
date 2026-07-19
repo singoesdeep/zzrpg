@@ -99,7 +99,8 @@ func TestEndToEndGameLoop(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, session.GetRegistry(), killreward.New(charService, questService, lootService, invService, nil), nil)
+	sessionReg := session.NewRegistry()
+	combatService := combat.NewCombatService(charService, statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil)
 
 	// WebSocket handler routing callback
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
@@ -123,7 +124,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 
 			char, err := charService.GetByID(context.Background(), payload.CharacterID)
 			if err == nil {
-				session.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+				sessionReg.StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 				elapsedSeconds := time.Now().Sub(char.LastActiveAt).Seconds()
 				if elapsedSeconds >= 10 {
 					gainedGold := int64(100)
@@ -176,7 +177,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	wsDisconnectHandler := func(client *socket.Client) {
 		if client.CharacterID > 0 {
 			_ = charService.UpdateLastActive(context.Background(), client.CharacterID)
-			session.GetRegistry().EndSession(client.CharacterID)
+			sessionReg.EndSession(client.CharacterID)
 		}
 	}
 
@@ -507,7 +508,8 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, session.GetRegistry(), killreward.New(charService, questService, lootService, invService, nil), nil)
+	sessionReg := session.NewRegistry()
+	combatService := combat.NewCombatService(charService, statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil)
 
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {
@@ -519,7 +521,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 
 			char, err := charService.GetByID(context.Background(), payload.CharacterID)
 			if err == nil {
-				session.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+				sessionReg.StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 			}
 
 			ack, _ := json.Marshal(map[string]interface{}{
@@ -654,14 +656,14 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	_, pAck, errAck := ws.ReadMessage()
 	t.Logf("SELECT ACK RESPONSE: %s, err: %v", string(pAck), errAck)
 
-	sess, exists := session.GetRegistry().GetSession(attackerID)
+	sess, exists := sessionReg.GetSession(attackerID)
 	t.Logf("ATTACKER SESSION BEFORE ATTACK: exists=%v, %+v", exists, sess)
 
 	// Start Defender Session manually so it exists in registry
-	_ = session.GetRegistry().StartSession(defenderID, 500.0, 100.0)
+	_ = sessionReg.StartSession(defenderID, 500.0, 100.0)
 
 	// 1. Attacker is Dead: Deduct all HP from attacker
-	_, _ = session.GetRegistry().DeductHP(attackerID, 1000.0) // kills attacker
+	_, _ = sessionReg.DeductHP(attackerID, 1000.0) // kills attacker
 
 	// Try attacking defender
 	attackPayload := map[string]interface{}{
@@ -685,8 +687,8 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	}
 
 	// 2. Attacker is revived, but Defender is Dead: Revive attacker, kill defender
-	_ = session.GetRegistry().Revive(attackerID)
-	_, _ = session.GetRegistry().DeductHP(defenderID, 1000.0) // kills defender
+	_ = sessionReg.Revive(attackerID)
+	_, _ = sessionReg.DeductHP(defenderID, 1000.0) // kills defender
 
 	_ = ws.WriteMessage(websocket.TextMessage, attackMsgBytes)
 
@@ -702,8 +704,8 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	}
 
 	// Cleanup
-	session.GetRegistry().EndSession(attackerID)
-	session.GetRegistry().EndSession(defenderID)
+	sessionReg.EndSession(attackerID)
+	sessionReg.EndSession(defenderID)
 }
 
 func TestInvalidJWTToken(t *testing.T) {

@@ -55,6 +55,7 @@ type corePlugin struct {
 	stat       *statHolder
 	hub        *socket.Hub
 	router     *socket.MessageRouter
+	sessionReg *session.Registry
 }
 
 func (p *corePlugin) Meta() plugin.Meta { return plugin.Meta{Name: "core"} }
@@ -98,8 +99,12 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	p.hub = socket.NewHub()
 	p.hub.SetEventBus(ic.Bus())
 	p.router = socket.NewMessageRouter()
+	p.sessionReg = session.NewRegistry()
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {
+		return err
+	}
+	if err := registry.Provide(reg, "session", p.sessionReg); err != nil {
 		return err
 	}
 	if err := registry.Provide(reg, "cache", p.cache); err != nil {
@@ -177,7 +182,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 			if cs, err := registry.Resolve[character.CharacterService](reg, "character"); err == nil {
 				_ = cs.UpdateLastActive(context.Background(), client.CharacterID)
 			}
-			session.GetRegistry().EndSession(client.CharacterID)
+			p.sessionReg.EndSession(client.CharacterID)
 		}
 	}
 	mux.HandleFunc("/ws", socket.ServeWS(p.hub, cfg.JWTSecret, p.router.Dispatch, disconnect))
@@ -278,6 +283,7 @@ type characterPlugin struct {
 	lootService loot.LootService
 	invService  inventory.InventoryService
 	eventBus    bus.EventBus
+	sessionReg  *session.Registry
 }
 
 func (p *characterPlugin) Meta() plugin.Meta {
@@ -292,6 +298,7 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 
 	db := registry.MustResolve[*database.DB](reg, "db")
 	stat := registry.MustResolve[*statHolder](reg, "stat")
+	p.sessionReg = registry.MustResolve[*session.Registry](reg, "session")
 
 	p.eventBus = ic.Bus()
 	charRepo := character.NewCharacterRepository(db.Store)
@@ -360,7 +367,7 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 	// Start active in-memory combat session for health tracking.
 	char, err := p.charService.GetByID(context.Background(), payload.CharacterID)
 	if err == nil {
-		session.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
+		p.sessionReg.StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 
 		if p.eventBus != nil {
 			_ = p.eventBus.Publish(context.Background(), character.CharacterLoggedIn{
@@ -576,9 +583,10 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	stat := registry.MustResolve[*statHolder](reg, "stat")
 	hub := registry.MustResolve[*socket.Hub](reg, "hub")
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
+	sessionReg := registry.MustResolve[*session.Registry](reg, "session")
 
 	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
-	combatService := combat.NewCombatService(charService, stat.client, session.GetRegistry(), rewarder, ic.Bus())
+	combatService := combat.NewCombatService(charService, stat.client, sessionReg, rewarder, ic.Bus())
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {

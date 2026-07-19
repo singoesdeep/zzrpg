@@ -4,8 +4,10 @@
 // package — combat and the character plugin depend on session directly, keeping
 // the transport layer free of gameplay state.
 //
-// The registry is still a process global (GetRegistry) for now; de-globalizing
-// it into a kernel-owned, injected instance is a separate step (plan M4).
+// The registry is created and owned by the kernel (the core plugin constructs it
+// and provides it through the DI registry); consumers receive it by injection,
+// not via a package global. This makes it possible to run isolated worlds/tests
+// with independent session state.
 package session
 
 import (
@@ -26,12 +28,12 @@ type Registry struct {
 	sessions map[int64]*CharacterSession
 }
 
-var globalRegistry = &Registry{
-	sessions: make(map[int64]*CharacterSession),
-}
-
-func GetRegistry() *Registry {
-	return globalRegistry
+// NewRegistry creates an empty session registry. Each call yields an independent
+// instance, so tests and isolated worlds don't share session state.
+func NewRegistry() *Registry {
+	return &Registry{
+		sessions: make(map[int64]*CharacterSession),
+	}
 }
 
 // StartSession creates (or replaces) a session and returns a value copy. The
