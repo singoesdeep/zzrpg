@@ -213,6 +213,12 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		defenderHP = finalHP
 		defenderIsDead = finalIsDead
 		killedNow = killed
+		s.publish(ctx, CharacterDamaged{
+			CharacterID: req.DefenderID,
+			Amount:      res.Damage,
+			NewHP:       defenderHP,
+			IsDead:      defenderIsDead,
+		})
 	}
 
 	// 5. Trigger death progression (loot, quest progress) only for the attacker

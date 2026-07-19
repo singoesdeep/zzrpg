@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 )
@@ -50,22 +51,25 @@ type Service struct {
 	questSvc     QuestProgressor
 	lootSvc      LootRoller
 	inventorySvc InventoryWriter
+	eventBus     bus.EventBus
 }
 
-// New builds a Service. Any of questSvc, lootSvc, or inventorySvc may be nil,
-// in which case the corresponding step is skipped (matching the prior inline
-// behaviour in combat).
+// New builds a Service. Any of questSvc, lootSvc, inventorySvc, or eventBus may
+// be nil, in which case the corresponding step is skipped (matching the prior
+// inline behaviour in combat).
 func New(
 	charSvc CharacterRewarder,
 	questSvc QuestProgressor,
 	lootSvc LootRoller,
 	inventorySvc InventoryWriter,
+	eventBus bus.EventBus,
 ) *Service {
 	return &Service{
 		charSvc:      charSvc,
 		questSvc:     questSvc,
 		lootSvc:      lootSvc,
 		inventorySvc: inventorySvc,
+		eventBus:     eventBus,
 	}
 }
 
@@ -111,6 +115,12 @@ func (s *Service) RewardKill(ctx context.Context, killerID, victimID int64) []lo
 			}
 			_ = s.inventorySvc.AddItem(ctx, invItem)
 		}
+	}
+
+	// Announce the drop so consumers (UI, analytics, collection tracking) can
+	// react. Additive and async; does not affect the returned loot.
+	if len(drops) > 0 && s.eventBus != nil {
+		_ = s.eventBus.Publish(ctx, loot.LootDropped{CharacterID: killerID, TableID: tableID, Items: drops})
 	}
 
 	return drops

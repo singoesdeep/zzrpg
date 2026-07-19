@@ -234,3 +234,35 @@ func TestMoveAndEquipItem(t *testing.T) {
 func init() {
 	_ = time.Second
 }
+
+// TestAddItemEmitsEvent proves the inventory seam: a bus subscriber receives
+// ItemAddedToInventory (with the assigned slot) when an item is added — enabling
+// collect-item quests/achievements without inventory depending on them.
+func TestAddItemEmitsEvent(t *testing.T) {
+	repo := newMockInventoryRepository()
+	eventBus := bus.NewInProc(nil)
+	added := make(chan ItemAddedToInventory, 1)
+	eventBus.Subscribe(EventItemAddedToInventory, func(_ context.Context, ev bus.Event) {
+		added <- ev.(ItemAddedToInventory)
+	})
+	service := NewInventoryService(repo, &mockCharacterService{}, eventBus)
+
+	err := service.AddItem(context.Background(), &InventoryItem{
+		CharacterID:      7,
+		ItemDefinitionID: "red_potion_1",
+		Quantity:         3,
+		Durability:       100,
+	})
+	if err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+
+	select {
+	case ev := <-added:
+		if ev.CharacterID != 7 || ev.ItemDefinitionID != "red_potion_1" || ev.Quantity != 3 || ev.SlotIndex != 0 {
+			t.Errorf("unexpected ItemAddedToInventory: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for ItemAddedToInventory")
+	}
+}

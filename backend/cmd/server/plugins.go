@@ -95,6 +95,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	p.cache = appCache
 
 	p.hub = socket.NewHub()
+	p.hub.SetEventBus(ic.Bus())
 	p.router = socket.NewMessageRouter()
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {
@@ -275,6 +276,7 @@ type characterPlugin struct {
 	hub         *socket.Hub
 	lootService loot.LootService
 	invService  inventory.InventoryService
+	eventBus    bus.EventBus
 }
 
 func (p *characterPlugin) Meta() plugin.Meta {
@@ -290,6 +292,7 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	db := registry.MustResolve[*database.DB](reg, "db")
 	stat := registry.MustResolve[*statHolder](reg, "stat")
 
+	p.eventBus = ic.Bus()
 	charRepo := character.NewCharacterRepository(db.Pool)
 	p.charService = character.NewCharacterService(charRepo, stat.client, nil, ic.Bus())
 	if err := registry.Provide(reg, "character", p.charService); err != nil {
@@ -358,6 +361,13 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 	if err == nil {
 		socket.GetRegistry().StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 
+		if p.eventBus != nil {
+			_ = p.eventBus.Publish(context.Background(), character.CharacterLoggedIn{
+				CharacterID:  payload.CharacterID,
+				LastActiveAt: char.LastActiveAt,
+			})
+		}
+
 		// Calculate Offline Gains (tuning in content/idle/offline.json).
 		elapsedSeconds := time.Now().Sub(char.LastActiveAt).Seconds()
 		if elapsedSeconds >= idleConfig.MinSeconds {
@@ -418,6 +428,18 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 					},
 				})
 				client.Send <- gainsSummary
+
+				if p.eventBus != nil {
+					_ = p.eventBus.Publish(context.Background(), character.OfflineGainsGranted{
+						CharacterID:    payload.CharacterID,
+						ElapsedSeconds: elapsedSeconds,
+						Gold:           gainedGold,
+						Exp:            gainedExp,
+						LeveledUp:      leveledUp,
+						NewLevel:       newLevel,
+						Loot:           offlineLoot,
+					})
+				}
 			}
 		}
 		// Refresh LastActiveAt so it ticks from now.
@@ -554,7 +576,7 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	hub := registry.MustResolve[*socket.Hub](reg, "hub")
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 
-	rewarder := killreward.New(charService, questService, lootService, invService)
+	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
 	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), rewarder, ic.Bus())
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {

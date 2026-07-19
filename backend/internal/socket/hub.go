@@ -1,7 +1,11 @@
 package socket
 
 import (
+	"context"
 	"sync"
+
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/internal/character"
 )
 
 type Hub struct {
@@ -12,6 +16,8 @@ type Hub struct {
 	Register   chan *Client
 	Unregister chan *Client
 	Broadcast  chan []byte
+
+	eventBus bus.EventBus
 }
 
 func NewHub() *Hub {
@@ -23,6 +29,11 @@ func NewHub() *Hub {
 		Broadcast:        make(chan []byte),
 	}
 }
+
+// SetEventBus attaches an engine bus so the hub can publish session-lifecycle
+// events (CharacterLoggedOut). Optional and nil-safe: without it the hub behaves
+// exactly as before.
+func (h *Hub) SetEventBus(b bus.EventBus) { h.eventBus = b }
 
 func (h *Hub) Run() {
 	for {
@@ -64,13 +75,20 @@ func (h *Hub) Run() {
 // when a client is removed both by a broadcast drop and its ReadPump defer.
 func (h *Hub) removeClient(client *Client) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	var loggedOut int64
 	if _, ok := h.clients[client]; ok {
 		delete(h.clients, client)
 		close(client.Send)
 		if client.CharacterID > 0 {
+			loggedOut = client.CharacterID
 			delete(h.characterClients, client.CharacterID)
 		}
+	}
+	h.mu.Unlock()
+
+	// Publish the logout outside the lock; the bus is async and nil-safe.
+	if loggedOut > 0 && h.eventBus != nil {
+		_ = h.eventBus.Publish(context.Background(), character.CharacterLoggedOut{CharacterID: loggedOut})
 	}
 }
 

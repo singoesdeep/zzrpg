@@ -109,7 +109,19 @@ func (s *inventoryService) AddItem(ctx context.Context, item *InventoryItem) err
 	}
 
 	item.SlotIndex = emptySlot
-	return s.repo.AddItem(ctx, item)
+	if err := s.repo.AddItem(ctx, item); err != nil {
+		return err
+	}
+
+	if s.eventBus != nil {
+		_ = s.eventBus.Publish(ctx, ItemAddedToInventory{
+			CharacterID:      item.CharacterID,
+			ItemDefinitionID: item.ItemDefinitionID,
+			Quantity:         item.Quantity,
+			SlotIndex:        item.SlotIndex,
+		})
+	}
+	return nil
 }
 
 func (s *inventoryService) MoveItem(ctx context.Context, charID int32, fromSlot, toSlot int32) error {

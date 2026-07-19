@@ -9,7 +9,21 @@ const (
 	EventCombatAttackResolved = "combat_attack_resolved"
 	EventMobKilled            = "mob_killed"
 	EventPlayerKilled         = "player_killed"
+	EventCharacterDamaged     = "character_damaged"
 )
+
+// CharacterDamaged is published when a defender's HP is reduced by an attack,
+// carrying the post-hit health. Consumers can drive aggro/threat, on-damage
+// passives, or health UI. (Combat is currently the only damage source; other
+// sources would emit this too.)
+type CharacterDamaged struct {
+	CharacterID int64
+	Amount      int32
+	NewHP       float64
+	IsDead      bool
+}
+
+func (CharacterDamaged) Name() string { return EventCharacterDamaged }
 
 // CombatAttackResolved is published for every resolved attack (hit or miss),
 // carrying the same outcome the caller receives in AttackResult.

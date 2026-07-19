@@ -111,7 +111,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 
 	questSvc := &mockQuestService{}
 
-	rewarder := killreward.New(charService, questSvc, nil, nil)
+	rewarder := killreward.New(charService, questSvc, nil, nil, nil)
 	service := NewCombatService(charService, statClient, registry, rewarder, nil)
 
 	// 1. First Attack (Hit dummy)
@@ -188,7 +188,7 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 		mobKilled <- ev.(MobKilled)
 	})
 
-	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil), eventBus)
+	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
 	if err != nil {

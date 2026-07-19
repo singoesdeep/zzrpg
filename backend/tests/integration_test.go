@@ -97,7 +97,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService), nil)
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService, nil), nil)
 
 	// WebSocket handler routing callback
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
@@ -505,7 +505,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService), nil)
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService, nil), nil)
 
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {
