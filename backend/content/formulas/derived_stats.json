@@ -1,0 +1,13 @@
+{
+  "primary": {
+    "HP":        [{"source": "CON", "factor": 15.0}],
+    "MP":        [{"source": "INT", "factor": 10.0}],
+    "ATTACK":    [{"source": "STR", "factor": 2.0}],
+    "DEFENSE":   [{"source": "CON", "factor": 1.0}],
+    "CRIT_RATE": [{"source": "",    "factor": 5.0}]
+  },
+  "secondary": {
+    "ATTACK":  [{"source": "DEX", "factor": 0.5}],
+    "DEFENSE": [{"source": "STR", "factor": 0.2}]
+  }
+}

@@ -4,8 +4,12 @@ import (
 	"context"
 	"strings"
 
+	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
+
+// classDefs is the class starting-stat pack, loaded once from embedded content.
+var classDefs = content.MustLoadClasses()
 
 type CharacterService interface {
 	Create(ctx context.Context, userID int64, name, className string) (*CharacterWithStats, error)
@@ -47,18 +51,14 @@ func (s *characterService) Create(ctx context.Context, userID int64, name, class
 		return nil, ErrNameTooLong
 	}
 
-	var baseStats map[string]float64
-	switch className {
-	case "WARRIOR":
-		baseStats = map[string]float64{"STR": 15, "INT": 5, "DEX": 10, "CON": 15}
-	case "MAGE":
-		baseStats = map[string]float64{"STR": 5, "INT": 20, "DEX": 10, "CON": 10}
-	case "ASSASSIN":
-		baseStats = map[string]float64{"STR": 10, "INT": 5, "DEX": 20, "CON": 10}
-	case "SURA":
-		baseStats = map[string]float64{"STR": 12, "INT": 12, "DEX": 10, "CON": 11}
-	default:
+	classBase, ok := classDefs[className]
+	if !ok {
 		return nil, ErrInvalidClass
+	}
+	// Copy so callers can't mutate the shared, loaded content definition.
+	baseStats := make(map[string]float64, len(classBase))
+	for k, v := range classBase {
+		baseStats[k] = v
 	}
 
 	char := &Character{

@@ -1,0 +1,6 @@
+{
+  "WARRIOR":  {"STR": 15, "INT": 5,  "DEX": 10, "CON": 15},
+  "MAGE":     {"STR": 5,  "INT": 20, "DEX": 10, "CON": 10},
+  "ASSASSIN": {"STR": 10, "INT": 5,  "DEX": 20, "CON": 10},
+  "SURA":     {"STR": 12, "INT": 12, "DEX": 10, "CON": 11}
+}

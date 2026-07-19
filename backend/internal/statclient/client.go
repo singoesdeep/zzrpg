@@ -9,8 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/content"
 	zzstat "github.com/singoesdeep/zzstat/bindings/go"
 )
+
+// derivedStats is the derived-stat formula pack, loaded once from embedded
+// content and shared with the character fallback path.
+var derivedStats = content.MustLoadDerivedStats()
 
 type CharacterState struct {
 	CharacterID int32
@@ -168,19 +173,22 @@ func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState
 		}
 	}
 
-	// 3. Register base derived stats as scaling transforms or constants
-	// HP = CON * 15.0
-	resolver.RegisterScalingTransform("HP", zzstat.PhaseAdditive, zzstat.RuleAdditive, "CON", 15.0)
-	// MP = INT * 10.0
-	resolver.RegisterScalingTransform("MP", zzstat.PhaseAdditive, zzstat.RuleAdditive, "INT", 10.0)
-	// ATTACK = STR * 2.0 + DEX * 0.5
-	resolver.RegisterScalingTransform("ATTACK", zzstat.PhaseAdditive, zzstat.RuleAdditive, "STR", 2.0)
-	resolver.RegisterScalingTransform("ATTACK", zzstat.PhaseAdditive, zzstat.RuleAdditive, "DEX", 0.5)
-	// DEFENSE = CON * 1.0 + STR * 0.2
-	resolver.RegisterScalingTransform("DEFENSE", zzstat.PhaseAdditive, zzstat.RuleAdditive, "CON", 1.0)
-	resolver.RegisterScalingTransform("DEFENSE", zzstat.PhaseAdditive, zzstat.RuleAdditive, "STR", 0.2)
-	// CRIT_RATE = 5.0 base
-	resolver.RegisterConstantSource("CRIT_RATE", 5.0)
+	// 3. Register base derived stats from the content pack. Primary terms
+	//    (e.g. HP=CON*15) plus secondary terms (e.g. DEX into ATTACK) become
+	//    additive scaling transforms; constant terms (e.g. CRIT_RATE=5) become
+	//    constant sources. Equivalent to the previously hardcoded formulas, but
+	//    now sharing one source of truth with the Go fallback.
+	for _, group := range []map[string][]content.StatTerm{derivedStats.Primary, derivedStats.Secondary} {
+		for stat, terms := range group {
+			for _, t := range terms {
+				if t.Source == "" {
+					resolver.RegisterConstantSource(stat, t.Factor)
+				} else {
+					resolver.RegisterScalingTransform(stat, zzstat.PhaseAdditive, zzstat.RuleAdditive, t.Source, t.Factor)
+				}
+			}
+		}
+	}
 
 	// 4. Register modifiers for derived stats (HP, MP, ATTACK, DEFENSE, CRIT_RATE)
 	for _, derived := range []string{"HP", "MP", "ATTACK", "DEFENSE", "CRIT_RATE"} {
