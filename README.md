@@ -6,7 +6,7 @@
 
 ## Technical Stack
 - **Go Backend**: Core monolith implementing authentication, database management, quests, inventory, loot tables, and the WebSocket gateway.
-- **Rust zzstat**: High-performance core engine embedded in Go via FFI bindings implementing derived stats formulas, dodge rates, critical rolls, and combat damage variance calculations.
+- **Rust zzstat**: High-performance core engine embedded in Go via FFI bindings, resolving derived-stat formulas (base stats, equipment, skills, and buffs) through a priority-ordered modifier pipeline.
 - **PostgreSQL**: Relational database with dynamic constraints and JSONB fields for data-driven designs.
 - **Redis**: Fast caching store for active character sessions.
 - **Gorilla WebSocket**: WebSockets handler with thread-safe write loops, connection overrides, and live event hubs.
@@ -23,12 +23,13 @@
   - `backend/internal/loot/`: Probability drops, drop configuration managers.
   - `backend/internal/quests/`: Quest log registers, killing and npc progress hooks.
   - `backend/internal/socket/`: WebSockets connection hubs, read/write loops, auth validations.
-  - `backend/internal/statclient/`: Go client calling the Rust shared library (`libzzstat_ffi.so`) via FFI bindings.
+  - `backend/internal/statclient/`: Go client that dynamically loads the Rust shared library (`libzzstat_ffi.so`) via FFI bindings and runs stat resolution in-process.
   - `backend/tests/`: End-to-end integration test suites.
-- `zzstat/`: Rust core calculation engine.
-  - `zzstat/crates/zzstat-ffi/`: FFI bindings shared library exports.
-- `proto/`: Protobuf service definitions.
-- `scripts/`: Infrastructure orchestration utilities.
+- `docs/`: Design documentation (architecture, combat, database, API — EN/TR).
+- `scripts/`: Infrastructure orchestration utilities (`start-infra.sh`).
+- `docker-compose.yml`: PostgreSQL and Redis service definitions.
+
+> The Rust `zzstat` core lives in a sibling repository (`github.com/singoesdeep/zzstat`) and is consumed through its Go bindings (`bindings/go`). See the `replace` directive in `backend/go.mod`.
 
 ---
 
@@ -37,9 +38,9 @@
 2. **Data-Driven Items**: Items defined dynamically in the database via JSONB modifier fields (`item_definitions`).
 3. **Grid Inventory Slots**: Custom constraints for bag storage (`0..99`) and active equipment (`1000..1005`).
 4. **Quest Engine**: Dynamic progression triggers (`KILL_MOB`, `TALK_NPC`) with gold/exp rewards and Level-up triggers (+2 base stats).
-5. **Rust Combat Core**: In-process accuracy checks (DEX vs Dodge), critical rolls, and damage variance ($\pm10\%$) calculations via Go-Rust FFI.
+5. **Embedded Stat Core**: Derived stats (HP, MP, ATTACK, DEFENSE, CRIT_RATE) are resolved in-process by the Rust `zzstat` engine via FFI; combat rolls — accuracy (DEX vs Dodge), critical strikes, and damage variance (±10%) — are computed in Go on top of those stats.
 6. **Real-time WebSockets**: In-memory health session registries (`SessionRegistry`), global chats, and combat damage broadcasts.
-7. **Loot Table Rollers**: Canavarlar/mankenler öldüğünde JSONB olasılık tablolarına göre ganimet kazanılması.
+7. **Loot Table Rollers**: Probability-weighted loot awarded from JSONB drop tables when mobs/dummies are killed.
 8. **Idle Progression**: STR/INT scaled offline gold/exp accumulation and offline loot rolling.
 
 ---
@@ -157,16 +158,19 @@ Start databases (PostgreSQL & Redis) using Podman containers:
 migrate -path backend/internal/database/migrations -database "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable" up
 ```
 
-### 3. Run Rust Service
+### 3. Build the Rust `zzstat` Library
+The stat core is loaded in-process via FFI, so build the shared library from the sibling `zzstat` repository:
 ```bash
-cd zzstat
-cargo run
+cd ../zzstat
+cargo build --release
+# produces target/release/libzzstat_ffi.so
 ```
+The backend searches standard paths for `libzzstat_ffi.so`; override the location with `ZZSTAT_LIB_PATH` if needed.
 
 ### 4. Run Go Backend
 ```bash
 cd backend
-go run cmd/server/main.go
+ZZSTAT_LIB_PATH=../../zzstat/target/release/libzzstat_ffi.so go run cmd/server/main.go
 ```
 The API documentation is served at [http://localhost:8080/docs](http://localhost:8080/docs).
 
