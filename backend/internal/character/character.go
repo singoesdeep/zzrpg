@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/singoesdeep/zzrpg/backend/contracts"
 )
 
 var (
-	ErrCharacterNotFound      = errors.New("character not found")
-	ErrCharacterLimitReached  = errors.New("character limit reached for user")
-	ErrCharacterNameTaken     = errors.New("character name already taken")
-	ErrInvalidClass           = errors.New("invalid character class")
-	ErrNameTooShort           = errors.New("character name too short (minimum 3 characters)")
-	ErrNameTooLong            = errors.New("character name too long (maximum 16 characters)")
+	ErrCharacterNotFound     = errors.New("character not found")
+	ErrCharacterLimitReached = errors.New("character limit reached for user")
+	ErrCharacterNameTaken    = errors.New("character name already taken")
+	ErrInvalidClass          = errors.New("invalid character class")
+	ErrNameTooShort          = errors.New("character name too short (minimum 3 characters)")
+	ErrNameTooLong           = errors.New("character name too long (maximum 16 characters)")
 )
 
 type Character struct {
@@ -29,10 +31,10 @@ type Character struct {
 }
 
 type CharacterStats struct {
-	CharacterID  int64             `json:"character_id"`
+	CharacterID  int64              `json:"character_id"`
 	BaseStats    map[string]float64 `json:"base_stats"`
 	DerivedStats map[string]float64 `json:"derived_stats"`
-	UpdatedAt    time.Time         `json:"updated_at"`
+	UpdatedAt    time.Time          `json:"updated_at"`
 }
 
 type CharacterWithStats struct {
@@ -50,13 +52,8 @@ type CharacterRepository interface {
 	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
 }
 
-type EquipmentModifier struct {
-	Stat      string
-	Operation string
-	Value     float64
-	Priority  int32
-	SourceID  string
-}
+// EquipmentModifier is a domain alias for the shared contracts.Modifier.
+type EquipmentModifier = contracts.Modifier
 
 type EquipmentProvider interface {
 	GetEquippedModifiers(ctx context.Context, charID int32) ([]EquipmentModifier, error)

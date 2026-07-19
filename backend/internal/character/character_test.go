@@ -21,7 +21,7 @@ func (m *mockCharacterRepository) Create(ctx context.Context, char *Character, b
 	if _, ok := m.names[char.Name]; ok {
 		return ErrCharacterNameTaken
 	}
-	
+
 	// Enforce artificial limit in mock (max 4)
 	count := 0
 	for _, c := range m.characters {

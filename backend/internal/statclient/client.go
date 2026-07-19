@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/contracts"
 	zzstat "github.com/singoesdeep/zzstat/bindings/go"
 )
 
@@ -25,13 +26,8 @@ type CharacterState struct {
 	ActiveBuffs []Modifier
 }
 
-type Modifier struct {
-	Stat      string
-	Operation string
-	Value     float64
-	Priority  int32
-	SourceID  string
-}
+// Modifier is an alias for the shared contracts.Modifier.
+type Modifier = contracts.Modifier
 
 type CombatStats struct {
 	Level           int32

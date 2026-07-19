@@ -35,7 +35,6 @@ func TestStatClient(t *testing.T) {
 		t.Fatalf("calculation failed: %v", err)
 	}
 
-
 	// STR=15, DEX=10 -> base_attack = 15*2.0 + 10*0.5 = 35.0
 	// Equipment: flat +100.0, mult +20%
 	// Expected attack: (35.0 + 100.0) * (1.0 + 0.20) = 135.0 * 1.2 = 162.0
@@ -149,4 +148,3 @@ func TestStatClientEdgeCases(t *testing.T) {
 		t.Errorf("unexpected combat damage result: got %d, expected range [4, 6]", combatRes.Damage)
 	}
 }
-

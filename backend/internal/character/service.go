@@ -90,21 +90,14 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 		return err
 	}
 
-	// 2. Fetch equipped items modifiers from equipment provider
+	// 2. Fetch equipped items modifiers from equipment provider. Equipment
+	// modifiers and statclient modifiers are the same shared contracts.Modifier
+	// type now, so no per-field translation is needed.
 	var eqModifiers []statclient.Modifier
 	if s.equipProvider != nil {
-		eqMods, err := s.equipProvider.GetEquippedModifiers(ctx, int32(charID))
+		eqModifiers, err = s.equipProvider.GetEquippedModifiers(ctx, int32(charID))
 		if err != nil {
 			return err
-		}
-		for _, m := range eqMods {
-			eqModifiers = append(eqModifiers, statclient.Modifier{
-				Stat:      m.Stat,
-				Operation: m.Operation,
-				Value:     m.Value,
-				Priority:  m.Priority,
-				SourceID:  m.SourceID,
-			})
 		}
 	}
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/singoesdeep/zzrpg/backend/contracts"
 )
 
 var (
@@ -19,12 +21,8 @@ const (
 	OpMultiply = "MULTIPLY"
 )
 
-type StatModifier struct {
-	Stat      string  `json:"stat"`      // "HP", "MP", "STR", "INT", "DEX", "CON", "ATTACK", "DEFENSE", "CRIT_RATE"
-	Operation string  `json:"operation"` // "ADD", "MULTIPLY"
-	Value     float64 `json:"value"`
-	Priority  int32   `json:"priority"`  // Base is 10, Equipment is 20, Buff is 30
-}
+// StatModifier is a domain alias for the shared contracts.Modifier.
+type StatModifier = contracts.Modifier
 
 type ItemDefinition struct {
 	ID                string         `json:"id"`
