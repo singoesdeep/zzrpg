@@ -3,7 +3,9 @@ package combat
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
@@ -110,7 +112,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 	questSvc := &mockQuestService{}
 
 	rewarder := killreward.New(charService, questSvc, nil, nil)
-	service := NewCombatService(charService, statClient, registry, rewarder)
+	service := NewCombatService(charService, statClient, registry, rewarder, nil)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{
@@ -154,5 +156,66 @@ func TestCombatExecutionPvE(t *testing.T) {
 
 	// Clean sessions
 	registry.EndSession(1)
+	registry.EndSession(9999)
+}
+
+// TestCombatEmitsDomainEvents proves the extension seam: a consumer that only
+// subscribes to the bus (never touching combat) receives CombatAttackResolved on
+// every attack and MobKilled on the killing blow — without altering combat's
+// synchronous result. This is the payoff of activating the event catalog.
+func TestCombatEmitsDomainEvents(t *testing.T) {
+	registry := socket.GetRegistry()
+	_ = registry.StartSession(2, 100.0, 50.0)
+
+	charService := &mockCharService{
+		char: &character.CharacterWithStats{
+			Character: character.Character{ID: 2, Name: "Hero", ClassName: "WARRIOR", Level: 10},
+			Stats: character.CharacterStats{
+				BaseStats:    map[string]float64{"STR": 15, "DEX": 10},
+				DerivedStats: map[string]float64{"ATTACK": 150, "CRIT_RATE": 5},
+			},
+		},
+	}
+	statClient := &mockStatClient{damageRes: statclient.DamageResult{IsHit: true, Damage: 9999}}
+
+	eventBus := bus.NewInProc(nil)
+	attackResolved := make(chan CombatAttackResolved, 1)
+	mobKilled := make(chan MobKilled, 1)
+	eventBus.Subscribe(EventCombatAttackResolved, func(_ context.Context, ev bus.Event) {
+		attackResolved <- ev.(CombatAttackResolved)
+	})
+	eventBus.Subscribe(EventMobKilled, func(_ context.Context, ev bus.Event) {
+		mobKilled <- ev.(MobKilled)
+	})
+
+	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil), eventBus)
+
+	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
+	if err != nil {
+		t.Fatalf("attack failed: %v", err)
+	}
+	if !res.DefenderIsDead {
+		t.Fatalf("expected the dummy to die from 9999 damage, got HP=%v", res.DefenderHP)
+	}
+
+	select {
+	case ev := <-attackResolved:
+		if ev.AttackerID != 2 || ev.DefenderID != 9999 || !ev.DefenderIsDead {
+			t.Errorf("unexpected CombatAttackResolved: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for CombatAttackResolved")
+	}
+
+	select {
+	case ev := <-mobKilled:
+		if ev.KillerID != 2 || ev.VictimID != 9999 || ev.LootTableID != "dummy_drops" {
+			t.Errorf("unexpected MobKilled: %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for MobKilled")
+	}
+
+	registry.EndSession(2)
 	registry.EndSession(9999)
 }

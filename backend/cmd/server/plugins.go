@@ -555,7 +555,7 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 
 	rewarder := killreward.New(charService, questService, lootService, invService)
-	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), rewarder)
+	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), rewarder, ic.Bus())
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
@@ -68,19 +69,32 @@ type combatService struct {
 	statClient  statclient.Client
 	registry    *socket.SessionRegistry
 	rewarder    KillRewarder
+	eventBus    bus.EventBus
 }
 
+// NewCombatService builds the combat service. eventBus may be nil, in which case
+// no domain events are published (the service is otherwise unchanged).
 func NewCombatService(
 	charService CharacterReader,
 	statClient statclient.Client,
 	registry *socket.SessionRegistry,
 	rewarder KillRewarder,
+	eventBus bus.EventBus,
 ) CombatService {
 	return &combatService{
 		charService: charService,
 		statClient:  statClient,
 		registry:    registry,
 		rewarder:    rewarder,
+		eventBus:    eventBus,
+	}
+}
+
+// publish emits ev on the bus when one is configured. Publishing is async and
+// fire-and-forget, so it never affects combat's synchronous outcome.
+func (s *combatService) publish(ctx context.Context, ev bus.Event) {
+	if s.eventBus != nil {
+		_ = s.eventBus.Publish(ctx, ev)
 	}
 }
 
@@ -112,10 +126,14 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 	var defenderDef, defenderDex float64
 	var defenderHP, defenderMaxHP float64
 	var defenderIsDead bool
+	var defenderIsMob bool
+	var defenderLootTable string
 
 	// If the defender is a defined mob (e.g. the training dummy 9999), use its
 	// data-driven stats; otherwise treat it as a PvP target (a real character).
 	if mob, ok := mobDefs.Mobs[strconv.FormatInt(req.DefenderID, 10)]; ok {
+		defenderIsMob = true
+		defenderLootTable = mob.LootTableID
 		defenderLevel = mob.Level
 		defenderDef = mob.Defense
 		defenderDex = mob.Dex
@@ -205,6 +223,31 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 	var rolledLoot []loot.DroppedItem
 	if killedNow && s.rewarder != nil {
 		rolledLoot = s.rewarder.RewardKill(ctx, req.AttackerID, req.DefenderID)
+	}
+
+	// 6. Emit domain events for consumers (analytics, achievements, aggro/AI,
+	// death penalties, client fan-out). These are additive and async — they do
+	// not alter the synchronous reward path above.
+	s.publish(ctx, CombatAttackResolved{
+		AttackerID:     req.AttackerID,
+		DefenderID:     req.DefenderID,
+		IsHit:          res.IsHit,
+		Damage:         res.Damage,
+		IsCrit:         res.IsCrit,
+		DefenderHP:     defenderHP,
+		DefenderMaxHP:  defenderMaxHP,
+		DefenderIsDead: defenderIsDead,
+	})
+	if killedNow {
+		if defenderIsMob {
+			s.publish(ctx, MobKilled{
+				KillerID:    req.AttackerID,
+				VictimID:    req.DefenderID,
+				LootTableID: defenderLootTable,
+			})
+		} else {
+			s.publish(ctx, PlayerKilled{KillerID: req.AttackerID, VictimID: req.DefenderID})
+		}
 	}
 
 	return &AttackResult{
