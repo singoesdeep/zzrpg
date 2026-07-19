@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 )
 
@@ -243,6 +244,18 @@ func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, go
 				WHERE character_id = $2
 			`, newBaseBytes, charID)
 			if err != nil {
+				return err
+			}
+		}
+
+		// Record the domain events in the SAME transaction as the state change,
+		// so the reward (and any level-up) can never be lost or emitted without
+		// the write actually committing. The relay dispatches them after commit.
+		if err := outbox.Append(ctx, q, RewardsGranted{CharacterID: charID, Gold: goldToAdd, Exp: expToAdd}); err != nil {
+			return err
+		}
+		if leveledUp {
+			if err := outbox.Append(ctx, q, CharacterLeveledUp{CharacterID: charID, NewLevel: newLevel}); err != nil {
 				return err
 			}
 		}

@@ -149,11 +149,12 @@ func (s *characterService) AddRewards(ctx context.Context, charID int64, gold in
 		return false, 0, err
 	}
 
-	s.publish(ctx, RewardsGranted{CharacterID: charID, Gold: gold, Exp: exp})
+	// RewardsGranted and CharacterLeveledUp are emitted transactionally via the
+	// outbox inside repo.AddRewards (atomic with the reward write), then
+	// dispatched by the relay — not published directly here.
 
 	// Recalculate stats if character leveled up (since base stats increased)
 	if leveledUp {
-		s.publish(ctx, CharacterLeveledUp{CharacterID: charID, NewLevel: newLevel})
 		_ = s.RecalculateStats(ctx, charID)
 	}
 

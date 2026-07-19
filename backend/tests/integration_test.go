@@ -14,6 +14,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
@@ -730,5 +731,102 @@ func TestInvalidJWTToken(t *testing.T) {
 	}
 	if resp != nil && resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected status code 401 Unauthorized, got: %d", resp.StatusCode)
+	}
+}
+
+// TestOutboxDispatchesRewardEvents proves the transactional-outbox path end to
+// end against live Postgres: character.AddRewards writes RewardsGranted to the
+// outbox in the SAME transaction as the reward, and the relay then decodes and
+// republishes it on the bus, marking the row published. Requires PostgreSQL.
+func TestOutboxDispatchesRewardEvents(t *testing.T) {
+	dbURL := "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skip("PostgreSQL not accessible, skipping outbox integration test.")
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("PostgreSQL running but ping failed, skipping outbox integration test.")
+	}
+
+	// Ensure the outbox table exists (idempotent) so the test is self-sufficient.
+	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS outbox (
+		id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, payload JSONB NOT NULL,
+		occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), published_at TIMESTAMPTZ)`)
+	if err != nil {
+		t.Fatalf("ensure outbox table: %v", err)
+	}
+
+	st := store.New(pool)
+
+	// A user (FK target) + a character to reward.
+	authRepo := auth.NewUserRepository(st)
+	authService := auth.NewAuthService(authRepo, "outbox-test-secret-000000000000")
+	uname := "outbox_" + time.Now().Format("150405.000000")
+	user, err := authService.Register(ctx, uname, uname+"@test.com", "securepassword123")
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	charRepo := character.NewCharacterRepository(st)
+	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil)
+	charName := fmt.Sprintf("Ob%d", time.Now().UnixNano()%100000000000)
+	char, err := charService.Create(ctx, user.ID, charName, "WARRIOR")
+	if err != nil {
+		t.Fatalf("create character: %v", err)
+	}
+
+	// Reward the character: RewardsGranted must land in the outbox, unpublished.
+	if _, _, err := charService.AddRewards(ctx, char.ID, 50, 100); err != nil {
+		t.Fatalf("add rewards: %v", err)
+	}
+
+	var unpublished int
+	err = pool.QueryRow(ctx,
+		`SELECT count(*) FROM outbox WHERE event_type = 'rewards_granted' AND published_at IS NULL`,
+	).Scan(&unpublished)
+	if err != nil {
+		t.Fatalf("count outbox: %v", err)
+	}
+	if unpublished == 0 {
+		t.Fatal("expected an unpublished rewards_granted outbox row after AddRewards")
+	}
+
+	// The relay decodes and republishes it on the bus.
+	eventBus := bus.NewInProc(nil)
+	got := make(chan character.RewardsGranted, 16)
+	eventBus.Subscribe(character.EventRewardsGranted, func(_ context.Context, ev bus.Event) {
+		got <- ev.(character.RewardsGranted)
+	})
+	relay := outbox.NewRelay(st, eventBus, nil)
+	character.RegisterOutboxDecoders(relay)
+	if _, err := relay.Dispatch(ctx); err != nil {
+		t.Fatalf("dispatch: %v", err)
+	}
+
+	// Our reward event must arrive (there may be leftover rows for other chars).
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-got:
+			if ev.CharacterID == char.ID {
+				if ev.Gold != 50 || ev.Exp != 100 {
+					t.Errorf("unexpected RewardsGranted: %+v", ev)
+				}
+				// And the row is now marked published.
+				var stillUnpublished int
+				_ = pool.QueryRow(ctx,
+					`SELECT count(*) FROM outbox WHERE event_type='rewards_granted' AND published_at IS NULL AND (payload->>'CharacterID')::bigint = $1`,
+					char.ID,
+				).Scan(&stillUnpublished)
+				if stillUnpublished != 0 {
+					t.Errorf("expected the dispatched row to be marked published, %d still unpublished", stillUnpublished)
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for our RewardsGranted from the relay")
+		}
 	}
 }

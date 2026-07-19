@@ -10,6 +10,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
@@ -49,13 +50,14 @@ func adminOnly(jwtSecret string, h http.Handler) http.Handler {
 // ---------------------------------------------------------------------------
 
 type corePlugin struct {
-	db         *database.DB
-	cache      cache.Cache
-	closeCache func() error
-	stat       *statHolder
-	hub        *socket.Hub
-	router     *socket.MessageRouter
-	sessionReg *session.Registry
+	db          *database.DB
+	cache       cache.Cache
+	closeCache  func() error
+	stat        *statHolder
+	hub         *socket.Hub
+	router      *socket.MessageRouter
+	sessionReg  *session.Registry
+	outboxRelay *outbox.Relay
 }
 
 func (p *corePlugin) Meta() plugin.Meta { return plugin.Meta{Name: "core"} }
@@ -100,6 +102,11 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	p.hub.SetEventBus(ic.Bus())
 	p.router = socket.NewMessageRouter()
 	p.sessionReg = session.NewRegistry()
+
+	// Transactional outbox relay: dispatches events written in-tx (e.g. reward
+	// grants) onto the bus after commit. Domains register their decoders here.
+	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
+	character.RegisterOutboxDecoders(p.outboxRelay)
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {
 		return err
@@ -190,8 +197,9 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	return nil
 }
 
-func (p *corePlugin) Start(plugin.RunContext) error {
+func (p *corePlugin) Start(rc plugin.RunContext) error {
 	go p.hub.Run()
+	go p.outboxRelay.Run(rc.Context(), time.Second)
 	return nil
 }
 

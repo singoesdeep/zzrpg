@@ -3,9 +3,6 @@ package character
 import (
 	"context"
 	"testing"
-	"time"
-
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 )
 
 type mockCharacterRepository struct {
@@ -173,32 +170,7 @@ func TestCharacterLimit(t *testing.T) {
 	}
 }
 
-// TestCharacterEmitsRewardsGranted proves the character progression seam: a
-// consumer that only subscribes to the bus receives RewardsGranted when rewards
-// are credited — without the character service depending on it.
-func TestCharacterEmitsRewardsGranted(t *testing.T) {
-	repo := newMockCharacterRepository()
-	eventBus := bus.NewInProc(nil)
-	granted := make(chan RewardsGranted, 1)
-	eventBus.Subscribe(EventRewardsGranted, func(_ context.Context, ev bus.Event) {
-		granted <- ev.(RewardsGranted)
-	})
-	service := NewCharacterService(repo, nil, nil, eventBus)
-
-	char, err := service.Create(context.Background(), 1, "EventHero", "WARRIOR")
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if _, _, err := service.AddRewards(context.Background(), char.ID, 100, 200); err != nil {
-		t.Fatalf("add rewards: %v", err)
-	}
-
-	select {
-	case ev := <-granted:
-		if ev.CharacterID != char.ID || ev.Gold != 100 || ev.Exp != 200 {
-			t.Errorf("unexpected RewardsGranted: %+v", ev)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for RewardsGranted")
-	}
-}
+// RewardsGranted / CharacterLeveledUp are now emitted transactionally through the
+// outbox inside repo.AddRewards (see engine/outbox tests for the dispatch path
+// and the live-Postgres integration test for the end-to-end atomic guarantee),
+// so there is no direct-publish unit test for them here.

@@ -3,6 +3,7 @@ package character
 import (
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 )
 
@@ -77,3 +78,11 @@ type StatsRecalculated struct {
 }
 
 func (StatsRecalculated) Name() string { return EventStatsRecalculated }
+
+// RegisterOutboxDecoders teaches the relay how to rebuild this package's
+// transactionally-emitted events (RewardsGranted, CharacterLeveledUp) from their
+// stored outbox payloads so it can republish them on the bus.
+func RegisterOutboxDecoders(r *outbox.Relay) {
+	r.Register(EventRewardsGranted, outbox.JSONDecoder[RewardsGranted]())
+	r.Register(EventCharacterLeveledUp, outbox.JSONDecoder[CharacterLeveledUp]())
+}
