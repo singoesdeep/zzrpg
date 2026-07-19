@@ -11,7 +11,7 @@ import (
 	"fmt"
 )
 
-//go:embed formulas/derived_stats.json classes/classes.json
+//go:embed formulas/derived_stats.json classes/classes.json mobs/mobs.json
 var files embed.FS
 
 // StatTerm is one additive term of a derived stat. A term with an empty Source
@@ -33,6 +33,32 @@ type DerivedStats struct {
 
 // ClassDefs maps a class name to its starting base stats.
 type ClassDefs map[string]map[string]float64
+
+// MobDef describes a non-player combat target: its combat stats plus the loot
+// table it drops and the quest tag a kill counts toward.
+type MobDef struct {
+	Level       int32   `json:"level"`
+	Defense     float64 `json:"defense"`
+	Dex         float64 `json:"dex"`
+	MaxHP       float64 `json:"max_hp"`
+	MaxMP       float64 `json:"max_mp"`
+	LootTableID string  `json:"loot_table_id"`
+	QuestTag    string  `json:"quest_tag"`
+}
+
+// PvPDef holds the loot table and quest tag used when the defender is a player
+// (a real character) rather than a defined mob.
+type PvPDef struct {
+	LootTableID string `json:"loot_table_id"`
+	QuestTag    string `json:"quest_tag"`
+}
+
+// Mobs is the mob content pack: definitions keyed by string mob ID, plus the
+// PvP defaults.
+type Mobs struct {
+	Mobs map[string]MobDef `json:"mobs"`
+	PvP  PvPDef            `json:"pvp"`
+}
 
 // LoadDerivedStats reads the embedded derived-stat formula pack.
 func LoadDerivedStats() (*DerivedStats, error) {
@@ -58,6 +84,28 @@ func LoadClasses() (ClassDefs, error) {
 		return nil, fmt.Errorf("parse classes.json: %w", err)
 	}
 	return cd, nil
+}
+
+// LoadMobs reads the embedded mob-definition pack.
+func LoadMobs() (*Mobs, error) {
+	raw, err := files.ReadFile("mobs/mobs.json")
+	if err != nil {
+		return nil, fmt.Errorf("read mobs.json: %w", err)
+	}
+	var m Mobs
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("parse mobs.json: %w", err)
+	}
+	return &m, nil
+}
+
+// MustLoadMobs is LoadMobs but panics on error.
+func MustLoadMobs() *Mobs {
+	m, err := LoadMobs()
+	if err != nil {
+		panic(err)
+	}
+	return m
 }
 
 // MustLoadDerivedStats is LoadDerivedStats but panics on error. The content is

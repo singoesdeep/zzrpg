@@ -7,12 +7,18 @@ package killreward
 
 import (
 	"context"
+	"strconv"
 
+	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 )
+
+// mobDefs is the mob content pack, loaded once from embedded content. It drives
+// which loot table a kill rolls and which quest tag it counts toward.
+var mobDefs = content.MustLoadMobs()
 
 // Service orchestrates kill rewards across the character, quest, loot, and
 // inventory services.
@@ -45,17 +51,17 @@ func New(
 // attack response. The killer/victim identity determines the loot table and the
 // quest target tag (dummy 9999 => "dummy_drops"/"wolf"; otherwise PvP).
 func (s *Service) RewardKill(ctx context.Context, killerID, victimID int64) []loot.DroppedItem {
-	var tableID string
-	if victimID == 9999 {
-		tableID = "dummy_drops"
-		if s.questSvc != nil {
-			_ = s.questSvc.UpdateQuestProgress(ctx, int32(killerID), "KILL_MOB", "wolf", 1)
-		}
-	} else {
-		tableID = "player_drops" // or default PvP table
-		if s.questSvc != nil {
-			_ = s.questSvc.UpdateQuestProgress(ctx, int32(killerID), "KILL_MOB", "player", 1)
-		}
+	// Resolve loot table + quest tag from the mob pack; fall back to the PvP
+	// defaults when the victim is a real character rather than a defined mob.
+	tableID := mobDefs.PvP.LootTableID
+	questTag := mobDefs.PvP.QuestTag
+	if mob, ok := mobDefs.Mobs[strconv.FormatInt(victimID, 10)]; ok {
+		tableID = mob.LootTableID
+		questTag = mob.QuestTag
+	}
+
+	if s.questSvc != nil {
+		_ = s.questSvc.UpdateQuestProgress(ctx, int32(killerID), "KILL_MOB", questTag, 1)
 	}
 
 	if s.lootSvc == nil {

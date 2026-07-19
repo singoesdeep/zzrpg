@@ -3,12 +3,17 @@ package combat
 import (
 	"context"
 	"errors"
+	"strconv"
 
+	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
+
+// mobDefs is the mob content pack, loaded once from embedded content.
+var mobDefs = content.MustLoadMobs()
 
 // KillRewarder handles the side effects of a kill — quest progress, loot roll,
 // and applying drops (gold/items) — and returns the rolled loot so the attack
@@ -101,25 +106,26 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 	var defenderHP, defenderMaxHP float64
 	var defenderIsDead bool
 
-	// If defender is a training dummy (special ID e.g. 9999)
-	if req.DefenderID == 9999 {
-		defenderLevel = 10
-		defenderDef = 40.0
-		defenderDex = 10.0
-		defenderMaxHP = 1000.0
+	// If the defender is a defined mob (e.g. the training dummy 9999), use its
+	// data-driven stats; otherwise treat it as a PvP target (a real character).
+	if mob, ok := mobDefs.Mobs[strconv.FormatInt(req.DefenderID, 10)]; ok {
+		defenderLevel = mob.Level
+		defenderDef = mob.Defense
+		defenderDex = mob.Dex
+		defenderMaxHP = mob.MaxHP
 
-		// Find or create dummy session in registry
-		dummySess, dummyExists := s.registry.GetSession(9999)
-		if !dummyExists {
-			dummySess = s.registry.StartSession(9999, 1000.0, 100.0)
-		} else if dummySess.IsDead {
+		// Find or create the mob session in registry
+		mobSess, mobExists := s.registry.GetSession(req.DefenderID)
+		if !mobExists {
+			mobSess = s.registry.StartSession(req.DefenderID, mob.MaxHP, mob.MaxMP)
+		} else if mobSess.IsDead {
 			// Auto revive dummy for testing convenience (mutate through the
 			// registry so the change is applied under its lock, then re-read).
-			s.registry.Revive(9999)
-			dummySess, _ = s.registry.GetSession(9999)
+			s.registry.Revive(req.DefenderID)
+			mobSess, _ = s.registry.GetSession(req.DefenderID)
 		}
-		defenderHP = dummySess.CurrentHP
-		defenderIsDead = dummySess.IsDead
+		defenderHP = mobSess.CurrentHP
+		defenderIsDead = mobSess.IsDead
 	} else {
 		// PvP Target
 		defSess, defExists := s.registry.GetSession(req.DefenderID)

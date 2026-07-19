@@ -1,0 +1,17 @@
+{
+  "mobs": {
+    "9999": {
+      "level": 10,
+      "defense": 40,
+      "dex": 10,
+      "max_hp": 1000,
+      "max_mp": 100,
+      "loot_table_id": "dummy_drops",
+      "quest_tag": "wolf"
+    }
+  },
+  "pvp": {
+    "loot_table_id": "player_drops",
+    "quest_tag": "player"
+  }
+}

@@ -46,6 +46,31 @@ func TestDerivedStatsMatchLegacyCoefficients(t *testing.T) {
 	}
 }
 
+// TestMobsMatchLegacyHardcodes pins the mob pack to the values previously
+// hardcoded in combat (dummy 9999 stats) and killreward (table/quest tags).
+func TestMobsMatchLegacyHardcodes(t *testing.T) {
+	mobs, err := LoadMobs()
+	if err != nil {
+		t.Fatalf("LoadMobs: %v", err)
+	}
+
+	dummy, ok := mobs.Mobs["9999"]
+	if !ok {
+		t.Fatal("mob 9999 (training dummy) missing")
+	}
+	want := MobDef{
+		Level: 10, Defense: 40, Dex: 10, MaxHP: 1000, MaxMP: 100,
+		LootTableID: "dummy_drops", QuestTag: "wolf",
+	}
+	if dummy != want {
+		t.Errorf("dummy mob: got %+v, want %+v", dummy, want)
+	}
+
+	if mobs.PvP.LootTableID != "player_drops" || mobs.PvP.QuestTag != "player" {
+		t.Errorf("pvp defaults: got %+v, want {player_drops player}", mobs.PvP)
+	}
+}
+
 func TestClassesMatchLegacyStats(t *testing.T) {
 	classes, err := LoadClasses()
 	if err != nil {
