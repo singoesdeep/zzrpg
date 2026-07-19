@@ -21,11 +21,11 @@ func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), di
 			return
 		}
 
-		// Validate JWT Token
+		// Validate JWT Token (pin HS256 to prevent algorithm-substitution attacks)
 		claims := &auth.Claims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 			return []byte(jwtSecret), nil
-		})
+		}, jwt.WithValidMethods([]string{"HS256"}))
 
 		if err != nil || !token.Valid {
 			http.Error(w, "UnauthorizedClaim", http.StatusUnauthorized)

@@ -7,8 +7,26 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 )
+
+// requireOwnership resolves the authenticated user and verifies charID belongs
+// to them. It writes the appropriate error response and returns false on
+// failure. A missing character and a non-owned character both map to 404 so
+// character IDs cannot be enumerated across accounts.
+func requireOwnership(w http.ResponseWriter, r *http.Request, service InventoryService, charID int32) bool {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "User context not found")
+		return false
+	}
+	if err := service.VerifyOwnership(r.Context(), userID, charID); err != nil {
+		writeError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
+		return false
+	}
+	return true
+}
 
 type apiResponse struct {
 	Success bool        `json:"success"`
@@ -47,6 +65,10 @@ func GetInventoryHandler(service InventoryService) http.HandlerFunc {
 			return
 		}
 
+		if !requireOwnership(w, r, service, int32(charID)) {
+			return
+		}
+
 		items, err := service.GetInventory(ctx(r), int32(charID))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to load inventory")
@@ -73,6 +95,10 @@ func MoveItemHandler(service InventoryService) http.HandlerFunc {
 		var req MoveRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "Invalid request body")
+			return
+		}
+
+		if !requireOwnership(w, r, service, req.CharacterID) {
 			return
 		}
 

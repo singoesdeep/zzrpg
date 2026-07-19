@@ -13,6 +13,10 @@ type InventoryService interface {
 	GetInventory(ctx context.Context, charID int32) ([]InventoryItem, error)
 	AddItem(ctx context.Context, item *InventoryItem) error
 	GetEquippedModifiers(ctx context.Context, charID int32) ([]character.EquipmentModifier, error)
+	// VerifyOwnership reports whether charID belongs to userID. Used at the HTTP
+	// boundary to prevent IDOR; internal callers (combat, quests, offline gains)
+	// operate with system authority and skip this check.
+	VerifyOwnership(ctx context.Context, userID int64, charID int32) error
 }
 
 type inventoryService struct {
@@ -27,6 +31,18 @@ func NewInventoryService(repo InventoryRepository, charService character.Charact
 		charService: charService,
 		eventBus:    eventBus,
 	}
+}
+
+func (s *inventoryService) VerifyOwnership(ctx context.Context, userID int64, charID int32) error {
+	char, err := s.charService.GetByID(ctx, int64(charID))
+	if err != nil {
+		// Includes character.ErrCharacterNotFound; callers map this to 404.
+		return err
+	}
+	if char.UserID != userID {
+		return ErrNotOwner
+	}
+	return nil
 }
 
 func (s *inventoryService) GetInventory(ctx context.Context, charID int32) ([]InventoryItem, error) {

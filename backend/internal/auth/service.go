@@ -21,6 +21,7 @@ type authService struct {
 type Claims struct {
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+	Role     string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -68,9 +69,14 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 
 	// Create JWT token
 	expirationTime := time.Now().Add(24 * time.Hour)
+	role := user.Role
+	if role == "" {
+		role = RolePlayer
+	}
 	claims := &Claims{
 		UserID:   user.ID,
 		Username: user.Username,
+		Role:     role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

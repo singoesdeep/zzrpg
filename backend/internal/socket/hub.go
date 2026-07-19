@@ -33,49 +33,67 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 
 		case client := <-h.Unregister:
-			h.mu.Lock()
-			if _, ok := h.clients[client]; ok {
-				delete(h.clients, client)
-				close(client.Send)
-				if client.CharacterID > 0 {
-					delete(h.characterClients, client.CharacterID)
-				}
-			}
-			h.mu.Unlock()
+			h.removeClient(client)
 
 		case message := <-h.Broadcast:
+			// Collect clients whose send buffer is full without mutating the
+			// hub from inside this loop. We must NOT send to h.Unregister here:
+			// Run is the sole reader of that channel, so a send from within this
+			// case would block forever (self-deadlock, freezing the whole hub).
+			var stale []*Client
 			h.mu.RLock()
 			for client := range h.clients {
 				select {
 				case client.Send <- message:
 				default:
-					// If the buffer is full, unregister the client
-					h.mu.RUnlock()
-					h.Unregister <- client
-					h.mu.RLock()
+					stale = append(stale, client)
 				}
 			}
 			h.mu.RUnlock()
+
+			// Drop slow consumers after releasing the read lock.
+			for _, client := range stale {
+				h.removeClient(client)
+			}
+		}
+	}
+}
+
+// removeClient deregisters a client and closes its send channel. It is
+// idempotent: the clients-map membership check guards against a double close
+// when a client is removed both by a broadcast drop and its ReadPump defer.
+func (h *Hub) removeClient(client *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, ok := h.clients[client]; ok {
+		delete(h.clients, client)
+		close(client.Send)
+		if client.CharacterID > 0 {
+			delete(h.characterClients, client.CharacterID)
 		}
 	}
 }
 
 func (h *Hub) AssociateCharacter(client *Client, charID int64) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// If there's an existing active session for this character, close it
-	if oldClient, exists := h.characterClients[charID]; exists && oldClient != client {
-		// Disconnect older session (standard Metin2 override connection behavior)
-		h.characterClients[charID] = client
-		client.CharacterID = charID
-		oldClient.CharacterID = 0
-		h.Unregister <- oldClient
-		return
-	}
-
+	oldClient, exists := h.characterClients[charID]
 	h.characterClients[charID] = client
 	client.CharacterID = charID
+	if exists && oldClient != client {
+		// Zero the old client's CharacterID so the removeClient call below does
+		// not delete the freshly-set characterClients[charID] mapping.
+		oldClient.CharacterID = 0
+	} else {
+		oldClient = nil
+	}
+	h.mu.Unlock()
+
+	// Disconnect the older session (connection-override behavior) outside the
+	// lock. Sending to h.Unregister while holding h.mu would deadlock against
+	// Run's Unregister handler, which itself needs h.mu.
+	if oldClient != nil {
+		h.removeClient(oldClient)
+	}
 }
 
 func (h *Hub) GetClientByCharacterID(charID int64) (*Client, bool) {

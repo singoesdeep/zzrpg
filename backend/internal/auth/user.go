@@ -12,11 +12,18 @@ var (
 	ErrInvalidCredentials = errors.New("invalid username or password")
 )
 
+// Role values for RBAC.
+const (
+	RolePlayer = "player"
+	RoleAdmin  = "admin"
+)
+
 type User struct {
 	ID           int64     `json:"id"`
 	Username     string    `json:"username"`
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }

@@ -314,27 +314,34 @@ func main() {
 	mux.Handle("GET /api/v1/characters/{id}", auth.AuthMiddleware(cfg.JWTSecret)(character.GetHandler(charService)))
 	mux.Handle("GET /api/v1/characters/{id}/stats", auth.AuthMiddleware(cfg.JWTSecret)(character.GetStatsHandler(charService)))
 
-	// Item Admin Endpoints (Protected by JWT)
-	mux.Handle("POST /api/v1/admin/items", auth.AuthMiddleware(cfg.JWTSecret)(items.CreateHandler(itemService)))
-	mux.Handle("PUT /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.UpdateHandler(itemService)))
+	// adminOnly composes JWT auth with an admin-role check for mutating
+	// administrative endpoints (content management, item granting). Read-only
+	// catalog listings stay under plain JWT so the game client can fetch them.
+	adminOnly := func(h http.Handler) http.Handler {
+		return auth.AuthMiddleware(cfg.JWTSecret)(auth.RequireAdmin(h))
+	}
+
+	// Item Admin Endpoints (mutations require admin role; reads require auth only)
+	mux.Handle("POST /api/v1/admin/items", adminOnly(items.CreateHandler(itemService)))
+	mux.Handle("PUT /api/v1/admin/items/{id}", adminOnly(items.UpdateHandler(itemService)))
 	mux.Handle("GET /api/v1/admin/items", auth.AuthMiddleware(cfg.JWTSecret)(items.ListHandler(itemService)))
 	mux.Handle("GET /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.GetHandler(itemService)))
-	mux.Handle("DELETE /api/v1/admin/items/{id}", auth.AuthMiddleware(cfg.JWTSecret)(items.DeleteHandler(itemService)))
+	mux.Handle("DELETE /api/v1/admin/items/{id}", adminOnly(items.DeleteHandler(itemService)))
 
 	// Inventory Endpoints (Protected by JWT)
 	mux.Handle("GET /api/v1/characters/{id}/inventory", auth.AuthMiddleware(cfg.JWTSecret)(inventory.GetInventoryHandler(invService)))
 	mux.Handle("POST /api/v1/inventory/move", auth.AuthMiddleware(cfg.JWTSecret)(inventory.MoveItemHandler(invService)))
-	mux.Handle("POST /api/v1/admin/inventory/add", auth.AuthMiddleware(cfg.JWTSecret)(inventory.AddAdminItemHandler(invService)))
+	mux.Handle("POST /api/v1/admin/inventory/add", adminOnly(inventory.AddAdminItemHandler(invService)))
 
 	// Quest Endpoints (Protected by JWT)
-	mux.Handle("POST /api/v1/admin/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.CreateDefinitionHandler(questService)))
+	mux.Handle("POST /api/v1/admin/quests", adminOnly(quests.CreateDefinitionHandler(questService)))
 	mux.Handle("GET /api/v1/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.ListDefinitionsHandler(questService)))
 	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(cfg.JWTSecret)(quests.AcceptQuestHandler(questService)))
 	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(cfg.JWTSecret)(quests.GetQuestLogHandler(questService)))
-	mux.Handle("POST /api/v1/admin/quests/progress", auth.AuthMiddleware(cfg.JWTSecret)(quests.UpdateQuestProgressHandler(questService)))
+	mux.Handle("POST /api/v1/admin/quests/progress", adminOnly(quests.UpdateQuestProgressHandler(questService)))
 
 	// Loot Endpoints (Protected by JWT)
-	mux.Handle("POST /api/v1/admin/loot", auth.AuthMiddleware(cfg.JWTSecret)(loot.CreateLootTableHandler(lootService)))
+	mux.Handle("POST /api/v1/admin/loot", adminOnly(loot.CreateLootTableHandler(lootService)))
 	mux.Handle("GET /api/v1/admin/loot", auth.AuthMiddleware(cfg.JWTSecret)(loot.ListLootTablesHandler(lootService)))
 
 	// WebSocket Endpoint

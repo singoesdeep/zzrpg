@@ -145,6 +145,10 @@ func (m *mockInventoryService) GetEquippedModifiers(ctx context.Context, charID 
 	return nil, nil
 }
 
+func (m *mockInventoryService) VerifyOwnership(ctx context.Context, userID int64, charID int32) error {
+	return nil
+}
+
 func TestQuestProgressionAndRewards(t *testing.T) {
 	repo := newMockQuestRepository()
 	charService := &mockCharService{
