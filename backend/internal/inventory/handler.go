@@ -9,6 +9,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 )
 
 // requireOwnership resolves the authenticated user and verifies charID belongs
@@ -28,16 +29,9 @@ func requireOwnership(w http.ResponseWriter, r *http.Request, service InventoryS
 	return true
 }
 
-type apiResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *apiError   `json:"error,omitempty"`
-}
-
-type apiError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// Response/error envelope types live once in pkg/httpx.
+type apiResponse = httpx.Response
+type apiError = httpx.Error
 
 type addTestItemRequest struct {
 	CharacterID      int32  `json:"character_id"`
@@ -175,12 +169,5 @@ func ctx(r *http.Request) interface {
 }
 
 func writeError(w http.ResponseWriter, statusCode int, code, message string) {
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(apiResponse{
-		Success: false,
-		Error: &apiError{
-			Code:    code,
-			Message: message,
-		},
-	})
+	httpx.WriteError(w, statusCode, code, message)
 }

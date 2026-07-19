@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+
+	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 )
 
 type registerRequest struct {
@@ -17,16 +19,9 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-type apiResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   *apiError   `json:"error,omitempty"`
-}
-
-type apiError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// Response/error envelope types live once in pkg/httpx.
+type apiResponse = httpx.Response
+type apiError = httpx.Error
 
 func RegisterHandler(service AuthService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -112,12 +107,5 @@ func LoginHandler(service AuthService) http.HandlerFunc {
 }
 
 func writeError(w http.ResponseWriter, statusCode int, code, message string) {
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(apiResponse{
-		Success: false,
-		Error: &apiError{
-			Code:    code,
-			Message: message,
-		},
-	})
+	httpx.WriteError(w, statusCode, code, message)
 }

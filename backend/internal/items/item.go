@@ -13,6 +13,12 @@ var (
 	ErrInvalidModifierType = errors.New("invalid modifier parameters")
 )
 
+// Stat modifier operations.
+const (
+	OpAdd      = "ADD"
+	OpMultiply = "MULTIPLY"
+)
+
 type StatModifier struct {
 	Stat      string  `json:"stat"`      // "HP", "MP", "STR", "INT", "DEX", "CON", "ATTACK", "DEFENSE", "CRIT_RATE"
 	Operation string  `json:"operation"` // "ADD", "MULTIPLY"

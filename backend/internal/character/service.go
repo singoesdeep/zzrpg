@@ -123,14 +123,9 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 			return err
 		}
 	} else {
-		// Mock fallback if client is not available (mostly in tests or local fallback)
-		finalStats = map[string]float64{
-			"HP":        charWithStats.Stats.BaseStats["CON"] * 15,
-			"MP":        charWithStats.Stats.BaseStats["INT"] * 10,
-			"ATTACK":    charWithStats.Stats.BaseStats["STR"] * 2,
-			"DEFENSE":   charWithStats.Stats.BaseStats["CON"] * 1,
-			"CRIT_RATE": 5,
-		}
+		// Fallback when the resolver is unavailable (tests / local). Same formula
+		// as character creation — see FallbackDerivedStats in stats.go.
+		finalStats = FallbackDerivedStats(charWithStats.Stats.BaseStats)
 	}
 
 	// 5. Save/Update derived stats cache in database

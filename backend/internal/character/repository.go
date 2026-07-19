@@ -58,14 +58,8 @@ func (r *pgCharacterRepository) Create(ctx context.Context, char *Character, bas
 		return err
 	}
 
-	// Local calculation fallback for initial derived stats
-	derivedStats := map[string]float64{
-		"HP":        baseStats["CON"] * 15,
-		"MP":        baseStats["INT"] * 10,
-		"ATTACK":    baseStats["STR"] * 2,
-		"DEFENSE":   baseStats["CON"] * 1,
-		"CRIT_RATE": 5, // 5% default
-	}
+	// Initial derived stats via the shared fallback formula (see stats.go).
+	derivedStats := FallbackDerivedStats(baseStats)
 	derivedJSON, err := json.Marshal(derivedStats)
 	if err != nil {
 		return err
@@ -218,21 +212,8 @@ func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, go
 	}
 
 	newGold := gold + goldToAdd
-	newExp := experience + expToAdd
-	newLevel := level
-	leveledUp := false
-
-	// Simple level-up algorithm: level N requires N * N * 100 EXP
-	for {
-		reqExp := int64(newLevel) * int64(newLevel) * 100
-		if newExp >= reqExp {
-			newExp -= reqExp
-			newLevel++
-			leveledUp = true
-		} else {
-			break
-		}
-	}
+	// Progression is a domain rule (see leveling.go), not persistence logic.
+	newLevel, newExp, leveledUp := ApplyExperience(level, experience, expToAdd)
 
 	// Update characters table
 	_, err = tx.Exec(ctx, `
@@ -257,12 +238,8 @@ func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, go
 			return false, 0, err
 		}
 
-		// Stat gains: +2 STR, +2 INT, +2 DEX, +2 CON for each level gained
-		lvlsGained := newLevel - level
-		baseStats["STR"] += float64(lvlsGained * 2)
-		baseStats["INT"] += float64(lvlsGained * 2)
-		baseStats["DEX"] += float64(lvlsGained * 2)
-		baseStats["CON"] += float64(lvlsGained * 2)
+		// Apply per-level stat gains (domain rule, see leveling.go).
+		ApplyLevelUpStatGains(baseStats, newLevel-level)
 
 		newBaseBytes, err := json.Marshal(baseStats)
 		if err != nil {

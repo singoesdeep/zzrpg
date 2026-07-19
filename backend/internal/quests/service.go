@@ -90,7 +90,7 @@ func (s *questService) UpdateQuestProgress(ctx context.Context, charID int32, ac
 	}
 
 	for _, cq := range questsLog {
-		if cq.Status != "ACTIVE" {
+		if cq.Status != StatusActive {
 			continue
 		}
 
