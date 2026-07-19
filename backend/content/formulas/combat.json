@@ -1,0 +1,89 @@
+{
+  "name": "default_physical_attack",
+  "expression": {
+    "type": "Chance",
+    "chance_expr": {
+      "type": "Clamp",
+      "min": 0.70,
+      "max": 0.99,
+      "expr": {
+        "type": "Add",
+        "left": {
+          "type": "Subtract",
+          "left": { "type": "Constant", "value": 1.0 },
+          "right": {
+            "type": "Divide",
+            "left": {
+              "type": "Add",
+              "left": {
+                "type": "Multiply",
+                "left": { "type": "Stat", "target": "defender", "stat": "DEX" },
+                "right": { "type": "Constant", "value": 0.2 }
+              },
+              "right": { "type": "Stat", "target": "defender", "stat": "DODGE_MOD" }
+            },
+            "right": {
+              "type": "Multiply",
+              "left": { "type": "Stat", "target": "attacker", "stat": "LEVEL" },
+              "right": { "type": "Constant", "value": 1.5 }
+            }
+          }
+        },
+        "right": { "type": "Stat", "target": "attacker", "stat": "ACC" }
+      }
+    },
+    "success_expr": {
+      "type": "Flag",
+      "name": "hit",
+      "expr": {
+        "type": "Multiply",
+        "left": {
+          "type": "Chance",
+          "chance_expr": {
+            "type": "Divide",
+            "left": { "type": "Stat", "target": "attacker", "stat": "CRIT_RATE" },
+            "right": { "type": "Constant", "value": 100.0 }
+          },
+          "success_expr": {
+            "type": "Flag",
+            "name": "crit",
+            "expr": {
+              "type": "Multiply",
+              "left": {
+                "type": "Clamp",
+                "min": 1.0,
+                "max": null,
+                "expr": {
+                  "type": "Subtract",
+                  "left": { "type": "Stat", "target": "attacker", "stat": "BASE_DMG" },
+                  "right": { "type": "Stat", "target": "defender", "stat": "DEF" }
+                }
+              },
+              "right": {
+                "type": "Multiply",
+                "left": { "type": "Constant", "value": 1.5 },
+                "right": {
+                  "type": "Add",
+                  "left": { "type": "Constant", "value": 1.0 },
+                  "right": { "type": "Stat", "target": "attacker", "stat": "CRIT_DMG_BONUS" }
+                }
+              }
+            }
+          },
+          "fail_expr": {
+            "type": "Clamp",
+            "min": 1.0,
+            "max": null,
+            "expr": {
+              "type": "Subtract",
+              "left": { "type": "Stat", "target": "attacker", "stat": "BASE_DMG" },
+              "right": { "type": "Stat", "target": "defender", "stat": "DEF" }
+            }
+          }
+        },
+        "right": { "type": "RandRange", "min": 0.9, "max": 1.1 }
+      }
+    },
+    "fail_expr": { "type": "Constant", "value": 0.0 }
+  }
+}

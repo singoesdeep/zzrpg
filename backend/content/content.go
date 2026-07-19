@@ -11,7 +11,7 @@ import (
 	"fmt"
 )
 
-//go:embed formulas/derived_stats.json classes/classes.json mobs/mobs.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json
 var files embed.FS
 
 // StatTerm is one additive term of a derived stat. A term with an empty Source
@@ -84,6 +84,17 @@ func LoadClasses() (ClassDefs, error) {
 		return nil, fmt.Errorf("parse classes.json: %w", err)
 	}
 	return cd, nil
+}
+
+// CombatFormulaJSON returns the raw combat-formula JSON, fed to
+// zzstat's EvaluateCombatEx. Panics if the embedded file is missing (a
+// build-time programmer error).
+func CombatFormulaJSON() string {
+	raw, err := files.ReadFile("formulas/combat.json")
+	if err != nil {
+		panic(fmt.Errorf("read combat.json: %w", err))
+	}
+	return string(raw)
 }
 
 // LoadMobs reads the embedded mob-definition pack.

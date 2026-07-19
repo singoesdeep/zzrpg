@@ -221,55 +221,57 @@ func (c *embeddedStatClient) Calculate(ctx context.Context, state CharacterState
 }
 
 func (c *embeddedStatClient) CalculateDamage(ctx context.Context, req CalculateDamageReq) (DamageResult, error) {
-	// 1. Calculate accuracy and check hit/miss
-	// Dodge Rate = (Defender DEX * 0.2 + Defender Dodge Modifiers) / (Attacker Level * 1.5)
-	dodgeRate := (req.Defender.Dex*0.2 + req.Defender.DodgeModifiers) / (float64(req.Attacker.Level) * 1.5)
-	baseHitChance := (1.0 - dodgeRate) + req.Attacker.AccModifiers
+	// The hit/dodge, crit, and ±10% variance logic all live in the data-driven
+	// combat formula (content/formulas/combat.json), evaluated by zzstat. This Go
+	// path only prepares the scalar inputs, supplies the RNG (so seeding/order is
+	// preserved), and applies the final round + minimum-1 clamp. There is no
+	// duplicated Go combat formula anymore.
 
-	// Cap hit chance between 70% (0.70) and 99% (0.99)
-	hitChance := baseHitChance
-	if hitChance < 0.70 {
-		hitChance = 0.70
-	} else if hitChance > 0.99 {
-		hitChance = 0.99
-	}
-
-	// Roll for hit
-	hitRoll := c.randFloat()
-	if hitRoll >= hitChance {
-		return DamageResult{
-			IsHit:  false,
-			Damage: 0,
-			IsCrit: false,
-		}, nil
-	}
-
-	// 2. Calculate base damage
+	// Base damage is either the raw attack or the skill-modified value.
 	baseDmg := req.Attacker.Attack
 	if req.SkillMultiplier > 0.0 {
 		baseDmg = req.Attacker.Attack*req.SkillMultiplier + req.SkillFlatDamage
 	}
 
-	// Damage = max(1, Base - Defender Defense)
-	damage := baseDmg - req.Defender.Defense
-	if damage < 1.0 {
-		damage = 1.0
+	attacker := zzstat.NewResolver()
+	defer attacker.Free()
+	attacker.RegisterConstantSource("BASE_DMG", baseDmg)
+	attacker.RegisterConstantSource("LEVEL", float64(req.Attacker.Level))
+	attacker.RegisterConstantSource("ACC", req.Attacker.AccModifiers)
+	attacker.RegisterConstantSource("CRIT_RATE", req.Attacker.CritRate)
+	attacker.RegisterConstantSource("CRIT_DMG_BONUS", req.Attacker.CritDamageBonus)
+
+	defender := zzstat.NewResolver()
+	defer defender.Free()
+	defender.RegisterConstantSource("DEF", req.Defender.Defense)
+	defender.RegisterConstantSource("DEX", req.Defender.Dex)
+	defender.RegisterConstantSource("DODGE_MOD", req.Defender.DodgeModifiers)
+
+	attackerCtx := zzstat.NewContext()
+	defer attackerCtx.Free()
+	defenderCtx := zzstat.NewContext()
+	defer defenderCtx.Free()
+
+	// The RNG callback is drawn in formula-evaluation order: hit, then crit, then
+	// variance — matching the previous Go implementation exactly.
+	raw, isHit, isCrit, err := zzstat.EvaluateCombatEx(
+		content.CombatFormulaJSON(),
+		attacker, attackerCtx,
+		defender, defenderCtx,
+		c.randFloat,
+	)
+	if err != nil {
+		return DamageResult{}, err
 	}
 
-	// 3. Roll critical strike
-	critRoll := c.randFloat() * 100.0
-	isCrit := critRoll < req.Attacker.CritRate
-	if isCrit {
-		damage = damage * 1.5 * (1.0 + req.Attacker.CritDamageBonus)
+	if !isHit {
+		return DamageResult{IsHit: false, Damage: 0, IsCrit: false}, nil
 	}
 
-	// 4. RNG Variance (±10%)
-	variance := 0.9 + c.randFloat()*0.2
-	finalDamage := math.Round(damage * variance)
+	finalDamage := math.Round(raw)
 	if finalDamage < 1 {
 		finalDamage = 1
 	}
-
 	return DamageResult{
 		IsHit:  true,
 		Damage: int32(finalDamage),
