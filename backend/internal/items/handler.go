@@ -134,7 +134,8 @@ func ListHandler(service ItemService) http.HandlerFunc {
 			return
 		}
 
-		items, err := service.List(r.Context())
+		limit, offset := httpx.ParsePage(r, 50, 200)
+		items, err := service.List(r.Context(), limit, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to list item definitions")
 			return

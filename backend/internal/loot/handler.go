@@ -53,7 +53,8 @@ func ListLootTablesHandler(service LootService) http.HandlerFunc {
 			return
 		}
 
-		list, err := service.ListLootTables(r.Context())
+		limit, offset := httpx.ParsePage(r, 50, 200)
+		list, err := service.ListLootTables(r.Context(), limit, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 			return

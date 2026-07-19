@@ -2,7 +2,7 @@ package socket
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -69,14 +69,14 @@ func (c *Client) ReadPump(messageHandler func(*Client, WSMessage), disconnectHan
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				slog.Warn("websocket read error", "error", err)
 			}
 			break
 		}
 
 		var wsMsg WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
-			log.Printf("invalid json payload: %v", err)
+			slog.Warn("invalid websocket json payload", "error", err)
 			continue
 		}
 

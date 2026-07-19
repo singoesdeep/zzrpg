@@ -1,7 +1,7 @@
 package socket
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -35,7 +35,7 @@ func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), di
 		// Upgrade to websocket
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("failed to upgrade connection: %v", err)
+			slog.Error("failed to upgrade websocket connection", "error", err)
 			return
 		}
 

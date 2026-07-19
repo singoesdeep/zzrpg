@@ -1,7 +1,6 @@
 package inventory
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -63,7 +62,7 @@ func GetInventoryHandler(service InventoryService) http.HandlerFunc {
 			return
 		}
 
-		items, err := service.GetInventory(ctx(r), int32(charID))
+		items, err := service.GetInventory(r.Context(), int32(charID))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to load inventory")
 			return
@@ -96,7 +95,7 @@ func MoveItemHandler(service InventoryService) http.HandlerFunc {
 			return
 		}
 
-		err := service.MoveItem(ctx(r), req.CharacterID, req.FromSlot, req.ToSlot)
+		err := service.MoveItem(r.Context(), req.CharacterID, req.FromSlot, req.ToSlot)
 		if err != nil {
 			if errors.Is(err, ErrSlotOutOfBounds) || errors.Is(err, ErrInvalidEquipmentSlot) {
 				writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
@@ -149,7 +148,7 @@ func AddAdminItemHandler(service InventoryService) http.HandlerFunc {
 			CustomModifiers:  []items.StatModifier{},
 		}
 
-		if err := service.AddItem(ctx(r), item); err != nil {
+		if err := service.AddItem(r.Context(), item); err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 			return
 		}
@@ -160,12 +159,6 @@ func AddAdminItemHandler(service InventoryService) http.HandlerFunc {
 			Data:    item,
 		})
 	}
-}
-
-func ctx(r *http.Request) interface {
-	context.Context
-} {
-	return r.Context()
 }
 
 func writeError(w http.ResponseWriter, statusCode int, code, message string) {

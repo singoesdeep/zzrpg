@@ -61,7 +61,7 @@ type CharacterQuest struct {
 type QuestRepository interface {
 	CreateDefinition(ctx context.Context, q *QuestDefinition) error
 	GetDefinition(ctx context.Context, id string) (*QuestDefinition, error)
-	ListDefinitions(ctx context.Context) ([]QuestDefinition, error)
+	ListDefinitions(ctx context.Context, limit, offset int) ([]QuestDefinition, error)
 	AcceptQuest(ctx context.Context, charID int32, questID string, initialProgress []int32) error
 	GetCharacterQuest(ctx context.Context, charID int32, questID string) (*CharacterQuest, error)
 	ListCharacterQuests(ctx context.Context, charID int32) ([]CharacterQuest, error)

@@ -99,13 +99,14 @@ func (r *pgItemRepository) GetByID(ctx context.Context, id string) (*ItemDefinit
 	return &item, nil
 }
 
-func (r *pgItemRepository) List(ctx context.Context) ([]ItemDefinition, error) {
+func (r *pgItemRepository) List(ctx context.Context, limit, offset int) ([]ItemDefinition, error) {
 	query := `
 		SELECT id, name, description, slot_type, min_level, class_restrictions, stats_modifiers, metadata, created_at
 		FROM item_definitions
 		ORDER BY id ASC
+		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

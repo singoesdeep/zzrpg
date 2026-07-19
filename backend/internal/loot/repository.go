@@ -55,13 +55,14 @@ func (r *pgLootRepository) GetLootTable(ctx context.Context, id string) (*LootTa
 	return &lt, nil
 }
 
-func (r *pgLootRepository) ListLootTables(ctx context.Context) ([]LootTable, error) {
+func (r *pgLootRepository) ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error) {
 	query := `
 		SELECT id, description, entries
 		FROM loot_tables
 		ORDER BY id ASC
+		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

@@ -42,6 +42,6 @@ type ItemRepository interface {
 	Create(ctx context.Context, item *ItemDefinition) error
 	Update(ctx context.Context, item *ItemDefinition) error
 	GetByID(ctx context.Context, id string) (*ItemDefinition, error)
-	List(ctx context.Context) ([]ItemDefinition, error)
+	List(ctx context.Context, limit, offset int) ([]ItemDefinition, error)
 	Delete(ctx context.Context, id string) error
 }

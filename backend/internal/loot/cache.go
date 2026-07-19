@@ -56,6 +56,6 @@ func (r *cachedRepository) CreateLootTable(ctx context.Context, lt *LootTable) e
 }
 
 // ListLootTables is not cached (admin/rare read); passes through to the source.
-func (r *cachedRepository) ListLootTables(ctx context.Context) ([]LootTable, error) {
-	return r.inner.ListLootTables(ctx)
+func (r *cachedRepository) ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error) {
+	return r.inner.ListLootTables(ctx, limit, offset)
 }

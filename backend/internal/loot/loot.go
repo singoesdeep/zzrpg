@@ -30,5 +30,5 @@ type DroppedItem struct {
 type LootRepository interface {
 	CreateLootTable(ctx context.Context, lt *LootTable) error
 	GetLootTable(ctx context.Context, id string) (*LootTable, error)
-	ListLootTables(ctx context.Context) ([]LootTable, error)
+	ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error)
 }

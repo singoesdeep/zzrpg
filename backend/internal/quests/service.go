@@ -10,7 +10,7 @@ import (
 type QuestService interface {
 	CreateDefinition(ctx context.Context, q *QuestDefinition) error
 	GetDefinition(ctx context.Context, id string) (*QuestDefinition, error)
-	ListDefinitions(ctx context.Context) ([]QuestDefinition, error)
+	ListDefinitions(ctx context.Context, limit, offset int) ([]QuestDefinition, error)
 	AcceptQuest(ctx context.Context, charID int32, questID string) error
 	GetQuestLog(ctx context.Context, charID int32) ([]CharacterQuest, error)
 	UpdateQuestProgress(ctx context.Context, charID int32, actionType string, target string, amount int32) error
@@ -38,8 +38,8 @@ func (s *questService) GetDefinition(ctx context.Context, id string) (*QuestDefi
 	return s.repo.GetDefinition(ctx, id)
 }
 
-func (s *questService) ListDefinitions(ctx context.Context) ([]QuestDefinition, error) {
-	return s.repo.ListDefinitions(ctx)
+func (s *questService) ListDefinitions(ctx context.Context, limit, offset int) ([]QuestDefinition, error) {
+	return s.repo.ListDefinitions(ctx, limit, offset)
 }
 
 func (s *questService) GetQuestLog(ctx context.Context, charID int32) ([]CharacterQuest, error) {

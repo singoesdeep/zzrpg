@@ -10,7 +10,7 @@ import (
 type LootService interface {
 	CreateLootTable(ctx context.Context, lt *LootTable) error
 	RollLoot(ctx context.Context, tableID string) ([]DroppedItem, error)
-	ListLootTables(ctx context.Context) ([]LootTable, error)
+	ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error)
 }
 
 type lootService struct {
@@ -33,8 +33,8 @@ func (s *lootService) CreateLootTable(ctx context.Context, lt *LootTable) error 
 	return s.repo.CreateLootTable(ctx, lt)
 }
 
-func (s *lootService) ListLootTables(ctx context.Context) ([]LootTable, error) {
-	return s.repo.ListLootTables(ctx)
+func (s *lootService) ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error) {
+	return s.repo.ListLootTables(ctx, limit, offset)
 }
 
 func (s *lootService) RollLoot(ctx context.Context, tableID string) ([]DroppedItem, error) {

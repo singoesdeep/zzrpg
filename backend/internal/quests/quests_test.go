@@ -34,7 +34,7 @@ func (m *mockQuestRepository) GetDefinition(ctx context.Context, id string) (*Qu
 	return q, nil
 }
 
-func (m *mockQuestRepository) ListDefinitions(ctx context.Context) ([]QuestDefinition, error) {
+func (m *mockQuestRepository) ListDefinitions(ctx context.Context, limit, offset int) ([]QuestDefinition, error) {
 	var list []QuestDefinition
 	for _, q := range m.definitions {
 		list = append(list, *q)

@@ -26,7 +26,7 @@ func (m *mockLootRepository) GetLootTable(ctx context.Context, id string) (*Loot
 	return lt, nil
 }
 
-func (m *mockLootRepository) ListLootTables(ctx context.Context) ([]LootTable, error) {
+func (m *mockLootRepository) ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error) {
 	var list []LootTable
 	for _, lt := range m.tables {
 		list = append(list, *lt)

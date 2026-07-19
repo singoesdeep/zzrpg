@@ -40,8 +40,8 @@ func (c *countingRepo) GetLootTable(ctx context.Context, id string) (*LootTable,
 func (c *countingRepo) CreateLootTable(ctx context.Context, lt *LootTable) error {
 	return c.inner.CreateLootTable(ctx, lt)
 }
-func (c *countingRepo) ListLootTables(ctx context.Context) ([]LootTable, error) {
-	return c.inner.ListLootTables(ctx)
+func (c *countingRepo) ListLootTables(ctx context.Context, limit, offset int) ([]LootTable, error) {
+	return c.inner.ListLootTables(ctx, limit, offset)
 }
 
 func TestCachedRepositoryReadThroughAndInvalidation(t *testing.T) {

@@ -59,7 +59,7 @@ func (m *mockQuestService) CreateDefinition(ctx context.Context, q *quests.Quest
 func (m *mockQuestService) GetDefinition(ctx context.Context, id string) (*quests.QuestDefinition, error) {
 	return nil, nil
 }
-func (m *mockQuestService) ListDefinitions(ctx context.Context) ([]quests.QuestDefinition, error) {
+func (m *mockQuestService) ListDefinitions(ctx context.Context, limit, offset int) ([]quests.QuestDefinition, error) {
 	return nil, nil
 }
 func (m *mockQuestService) AcceptQuest(ctx context.Context, charID int32, questID string) error {

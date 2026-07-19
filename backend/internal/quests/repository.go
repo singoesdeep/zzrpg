@@ -71,13 +71,14 @@ func (r *pgQuestRepository) GetDefinition(ctx context.Context, id string) (*Ques
 	return &q, nil
 }
 
-func (r *pgQuestRepository) ListDefinitions(ctx context.Context) ([]QuestDefinition, error) {
+func (r *pgQuestRepository) ListDefinitions(ctx context.Context, limit, offset int) ([]QuestDefinition, error) {
 	query := `
 		SELECT id, title, description, min_level, steps, rewards, metadata, created_at
 		FROM quest_definitions
 		ORDER BY id ASC
+		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query)
+	rows, err := r.pool.Query(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

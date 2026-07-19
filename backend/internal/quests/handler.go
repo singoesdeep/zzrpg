@@ -67,7 +67,8 @@ func ListDefinitionsHandler(service QuestService) http.HandlerFunc {
 			return
 		}
 
-		defs, err := service.ListDefinitions(r.Context())
+		limit, offset := httpx.ParsePage(r, 50, 200)
+		defs, err := service.ListDefinitions(r.Context(), limit, offset)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", err.Error())
 			return

@@ -6,7 +6,29 @@ package httpx
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 )
+
+// ParsePage reads ?limit= and ?offset= query parameters, applying defaultLimit
+// when absent/invalid and clamping to maxLimit. offset defaults to 0. It gives
+// list endpoints a bounded result set instead of returning an entire table.
+func ParsePage(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
+	limit = defaultLimit
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
 
 // Response is the standard JSON envelope. Exactly one of Data/Error is set.
 type Response struct {

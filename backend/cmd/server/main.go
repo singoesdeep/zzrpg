@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"errors"
+	stdlog "log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -25,6 +26,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
+	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
 )
 
@@ -35,7 +37,9 @@ func main() {
 	// 1. Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		panic("Failed to load configuration: " + err.Error())
+		// The structured logger depends on cfg.Env, which isn't available yet,
+		// so use the standard logger for this one fatal startup error.
+		stdlog.Fatalf("failed to load configuration: %v", err)
 	}
 
 	// 2. Initialize logger
@@ -391,9 +395,12 @@ func main() {
 	})
 
 	// 5. Initialize Server
+	// Wrap the router with panic recovery (outermost) and request logging.
+	handler := httpx.Recover(log)(httpx.RequestLogger(log)(mux))
+
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      mux,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

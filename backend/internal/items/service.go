@@ -9,7 +9,7 @@ type ItemService interface {
 	Create(ctx context.Context, item *ItemDefinition) error
 	Update(ctx context.Context, item *ItemDefinition) error
 	GetByID(ctx context.Context, id string) (*ItemDefinition, error)
-	List(ctx context.Context) ([]ItemDefinition, error)
+	List(ctx context.Context, limit, offset int) ([]ItemDefinition, error)
 	Delete(ctx context.Context, id string) error
 }
 
@@ -43,8 +43,8 @@ func (s *itemService) GetByID(ctx context.Context, id string) (*ItemDefinition, 
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *itemService) List(ctx context.Context) ([]ItemDefinition, error) {
-	return s.repo.List(ctx)
+func (s *itemService) List(ctx context.Context, limit, offset int) ([]ItemDefinition, error) {
+	return s.repo.List(ctx, limit, offset)
 }
 
 func (s *itemService) Delete(ctx context.Context, id string) error {

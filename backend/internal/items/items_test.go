@@ -37,7 +37,7 @@ func (m *mockItemRepository) GetByID(ctx context.Context, id string) (*ItemDefin
 	return item, nil
 }
 
-func (m *mockItemRepository) List(ctx context.Context) ([]ItemDefinition, error) {
+func (m *mockItemRepository) List(ctx context.Context, limit, offset int) ([]ItemDefinition, error) {
 	var list []ItemDefinition
 	for _, it := range m.items {
 		list = append(list, *it)
