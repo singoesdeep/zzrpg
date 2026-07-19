@@ -25,6 +25,13 @@ type KillRewarder interface {
 	RewardKill(ctx context.Context, killerID, victimID int64) []loot.DroppedItem
 }
 
+// CharacterReader is the minimal character-service surface combat needs: fetching
+// a combatant's level and stats by ID. Declared here (consumer-owned) so combat
+// depends on the behaviour it uses, not the full character.CharacterService.
+type CharacterReader interface {
+	GetByID(ctx context.Context, id int64) (*character.CharacterWithStats, error)
+}
+
 var (
 	ErrAttackerNotFound = errors.New("attacker not found or session inactive")
 	ErrDefenderNotFound = errors.New("defender not found or session inactive")
@@ -57,14 +64,14 @@ type CombatService interface {
 }
 
 type combatService struct {
-	charService character.CharacterService
+	charService CharacterReader
 	statClient  statclient.Client
 	registry    *socket.SessionRegistry
 	rewarder    KillRewarder
 }
 
 func NewCombatService(
-	charService character.CharacterService,
+	charService CharacterReader,
 	statClient statclient.Client,
 	registry *socket.SessionRegistry,
 	rewarder KillRewarder,

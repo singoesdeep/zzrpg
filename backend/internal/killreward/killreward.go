@@ -10,33 +10,56 @@ import (
 	"strconv"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 )
 
 // mobDefs is the mob content pack, loaded once from embedded content. It drives
 // which loot table a kill rolls and which quest tag it counts toward.
 var mobDefs = content.MustLoadMobs()
 
+// The interfaces below are consumer-owned: killreward declares the minimal
+// surface it needs from each collaborator, so it depends on those behaviours
+// rather than importing the character and quest service packages. This drops the
+// killreward→character and killreward→quests package edges entirely.
+
+// CharacterRewarder credits gold/exp to a character.
+type CharacterRewarder interface {
+	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
+}
+
+// QuestProgressor advances a character's quest progress for an action.
+type QuestProgressor interface {
+	UpdateQuestProgress(ctx context.Context, charID int32, actionType string, target string, amount int32) error
+}
+
+// LootRoller rolls a loot table.
+type LootRoller interface {
+	RollLoot(ctx context.Context, tableID string) ([]loot.DroppedItem, error)
+}
+
+// InventoryWriter grants an item to a character's inventory.
+type InventoryWriter interface {
+	AddItem(ctx context.Context, item *inventory.InventoryItem) error
+}
+
 // Service orchestrates kill rewards across the character, quest, loot, and
 // inventory services.
 type Service struct {
-	charSvc      character.CharacterService
-	questSvc     quests.QuestService
-	lootSvc      loot.LootService
-	inventorySvc inventory.InventoryService
+	charSvc      CharacterRewarder
+	questSvc     QuestProgressor
+	lootSvc      LootRoller
+	inventorySvc InventoryWriter
 }
 
 // New builds a Service. Any of questSvc, lootSvc, or inventorySvc may be nil,
 // in which case the corresponding step is skipped (matching the prior inline
 // behaviour in combat).
 func New(
-	charSvc character.CharacterService,
-	questSvc quests.QuestService,
-	lootSvc loot.LootService,
-	inventorySvc inventory.InventoryService,
+	charSvc CharacterRewarder,
+	questSvc QuestProgressor,
+	lootSvc LootRoller,
+	inventorySvc InventoryWriter,
 ) *Service {
 	return &Service{
 		charSvc:      charSvc,

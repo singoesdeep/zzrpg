@@ -16,13 +16,27 @@ type QuestService interface {
 	UpdateQuestProgress(ctx context.Context, charID int32, actionType string, target string, amount int32) error
 }
 
-type questService struct {
-	repo         QuestRepository
-	charService  character.CharacterService
-	inventorySvc inventory.InventoryService
+// CharacterGateway is the minimal character-service surface quests needs: a level
+// check on accept and reward crediting on completion. Consumer-owned so quests
+// depends on the behaviour it uses, not the full character.CharacterService.
+type CharacterGateway interface {
+	GetByID(ctx context.Context, id int64) (*character.CharacterWithStats, error)
+	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
 }
 
-func NewQuestService(repo QuestRepository, charService character.CharacterService, inventorySvc inventory.InventoryService) QuestService {
+// InventoryWriter is the minimal inventory surface quests needs: granting reward
+// items on quest completion.
+type InventoryWriter interface {
+	AddItem(ctx context.Context, item *inventory.InventoryItem) error
+}
+
+type questService struct {
+	repo         QuestRepository
+	charService  CharacterGateway
+	inventorySvc InventoryWriter
+}
+
+func NewQuestService(repo QuestRepository, charService CharacterGateway, inventorySvc InventoryWriter) QuestService {
 	return &questService{
 		repo:         repo,
 		charService:  charService,
