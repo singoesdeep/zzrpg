@@ -1,7 +1,7 @@
 # zzrpg → Idle Online RPG Backend Engine — Master Architecture Plan
 
 > **Status:** Architecture proposal (no code changed yet).
-> **Author:** Principal Architect orchestration pass.
+> **Author:** Principal Architect synthesis of three parallel expert-panel reviews — (1) Idiomatic Go / Architecture / DDD, (2) Engine Core / Plugin System, (3) Event-Driven / Data-Driven. All findings reconciled into one plan; conflicts resolved in favor of the incremental (Strangler-Fig) path.
 > **Scope:** Transform the current single-game monolith into a *plugin-first, event-driven, data-driven, transport/DB-independent* Idle Online RPG Backend Engine.
 > **Rule followed:** Every claim below is grounded in the actual code with `file:line` references. No speculation about code that does not exist.
 
@@ -48,6 +48,12 @@ The codebase today is a **well-built single game**, not an engine. It has clean 
 | A5 | **Circular domain dependency** | `charService.SetEquipmentProvider(invService)` `main.go:94`; setter mutates service post-construction | Symptom of wrong aggregate boundaries |
 | A6 | **Transport & DB not abstracted** | pgx in every repo; WS/HTTP hand-wired in `main.go` | Not transport-/DB-independent as required |
 | A7 | **Single-node assumptions** | `keyedMutex` (`inventory/service.go` comment), in-memory `SessionRegistry`, global event bus | Blocks horizontal scale to 100k players |
+| A8 | **Gameplay state trapped in the transport layer** | `socket.SessionRegistry` is the source of truth for HP/MP/death (`socket/session.go:21-27`, `var globalRegistry`), while Postgres holds level/gold/derived stats | Two systems of record diverge on restart; the missing "Encounter/CombatSession" aggregate lives in `socket`, not a domain |
+| A9 | **`Modifier` concept duplicated 3×** | `character.EquipmentModifier` (`character.go:53-59`), `statclient.Modifier` (`client.go:23-29`), `items.StatModifier` — same concept, 3 shapes, manual field-by-field translation at every boundary | No shared kernel; every new content type (skills/buffs/auras) re-implements it |
+| A10 | **Inconsistent ID types** | `character` uses `int64`, `inventory`/`combat`/`quests` use `int32` → casts at nearly every cross-package call (`combat.go:96,131,193,207`) | Systemic modeling bug; blocks a proper `CharacterID` value type |
+| A11 | **Anemic domain model + logic in repositories** | `Character` is a data struct with no behavior; leveling *orchestration* runs inside a SQL tx in `character/repository.go:195-265`; reward math in `main.go:161-164` and `combat.go` | Domain layer not independently testable/reusable — fatal for an "engine" |
+| A12 | **Process-global singletons** | `events.globalBus` (`events.go:28-30`), `socket.globalRegistry` (`session.go:21-23`) | Prevents multiple isolated game-worlds / clean tests / sharding |
+| A13 | **Silent economy data loss** | Swallowed errors on reward/inventory writes: `main.go:190`, `combat.go:207,216`, `quests/service.go:135,146` — no log, no retry | Players silently short-changed in production; unacceptable for an engine |
 
 ---
 
@@ -141,20 +147,47 @@ type Plugin interface {
 type Meta struct {
     Name         string
     Version      semver.Version
-    Requires     []Dependency          // {Name, VersionConstraint} — resolved before Init
-    Provides     []Capability          // e.g. "loot.roller", "combat.resolver"
-    Consumes     []Capability          // optional hooks it will look up
+    Requires     []Dependency          // HARD deps — absence is fatal; resolved before Init
+    Optional     []Dependency          // SOFT deps — influence load order only, may be absent
+    Provides     []Capability          // e.g. "stat.resolver", "equipment.modifiers"
+    Consumes     []Capability          // capabilities/hooks it will look up
 }
+// Dependency.Capability=true → depends on ANY plugin providing that capability
+// at a compatible semver range, not a named plugin. (Lets `combat` require
+// capability:stat.resolver, satisfied by statclient OR a mock OR a pure-Go impl.)
 
+// InitContext (a.k.a. RegistrationContext) is the plugin's SOLE channel to the
+// engine during Init. It is where main.go's imperative wiring (main.go:64-122)
+// and hook subscriptions (main.go:268-288) become declarative registrations.
 type InitContext interface {
+    Logger() *slog.Logger              // child logger tagged with plugin name
+    Config() config.Section            // namespaced: cfg.Sub("combat")
+    Clock()  Clock                     // injectable time source — replaces time.Now() @ main.go:153,173
+
     Registry() registry.Registry
-    Bus()      bus.EventBus
-    Content()  content.Loader
-    Router()   transport.Router        // register HTTP/WS handlers
-    Config()   config.Section          // plugin-scoped config namespace
-    Logger()   *slog.Logger
+    ProvideService(name string, svc any)
+    RequireService(name string, into any) error      // typed resolve into a *pointer
+    ProvideCapability(c Capability, impl any)
+    RequireCapability(name string, into any) error    // LAZY-resolved accessor (see circular-dep fix)
+
+    Subscribe(evt string, h bus.Handler)              // replaces events.Global().Subscribe @ main.go:268
+    RegisterHook(point string, priority int, fn any) error
+    RegisterMessageHandler(msgType string, h transport.MessageHandler) // replaces WS switch @ main.go:124-265
+    RegisterHTTPRoute(method, pattern string, h http.Handler)          // replaces mux.Handle @ main.go:330+
+    RegisterMigrations(fs fs.FS)                       // plugin owns its schema
+    RegisterContentType(ct content.ContentTypeDescriptor)
 }
 ```
+
+**cmd/server/main.go collapses to ~15 lines** — build engine, `Register(...)` the plugin set, `Run(ctx)`; the engine resolves the graph, runs Init/Start in topological order, blocks on signal, and Stops in reverse order (absorbing the scattered `defer` closes at `main.go:55,74-78,108`).
+
+### 5.4 Solving the circular dependency (`charService ↔ invService`)
+
+Today: `charService` built with `nil` provider (`main.go:83`), then patched via `charService.SetEquipmentProvider(invService)` (`main.go:94`). The cycle is *construction-time only* — at the interface level, `character` needs a narrow `EquipmentProvider` (`GetEquippedModifiers`), `inventory` needs `CharacterService`. Three engine-native fixes, best-last:
+
+- **(C) Mediator slot [ship first — behavior-identical]:** kernel owns an `EquipmentProvider` registry slot; `inventory` fills it in `Start`, `character` reads it in `Start`. Mechanically like today's setter but the *engine* owns timing, not `main`. Deletes the smell from `main.go`.
+- **(B) Event-mediated:** `character` never calls `inventory`; it subscribes to `ItemEquipped` and `inventory` pushes modifier snapshots in the payload. Removes the read-back edge; heavier `RecalculateStats` refactor.
+- **(A) Capability lazy-binding [target]:** `character` holds no provider field; during recalc it resolves `RequireCapability("equipment.modifiers")` — an accessor bound at first use (post-`Start`), so no construction edge exists. `SetEquipmentProvider` is deleted. Because `Init` forbids cross-plugin *calls* (registration only), the cycle can never re-form.
 
 ### 5.2 Init/Start/Stop maps directly onto today's code
 
@@ -193,7 +226,7 @@ func (r Registry) Lookup(kind, id string) (any, bool)      // e.g. Lookup("loot_
 
 **Immediately kills these hardcodes:** `"dummy_drops"`/`"player_drops"` (`combat/combat.go`), class switch (`character/service.go:52-63`), `9999` dummy mob — all become `registry.Lookup(kind, id)`.
 
-Collision handling: last-writer-wins is rejected; `Provide` on an existing name returns an error surfaced at kernel boot (fail fast).
+**Collision handling — two policies.** *Service/content-type* names must be unique: `Provide` on an existing name is a hard error surfaced at kernel boot, naming both contending plugins (fail fast). *Capabilities*, by contrast, are **allowed** to have multiple providers — that is their purpose — resolved by policy: (1) explicit config pin (`capabilities.stat.resolver = "statclient"`), else (2) highest semver, else (3) error if ambiguous with no default. This generalizes the existing `statClient != nil ? real : fallback` branch (`character/service.go:120-128`, `combat.go:163`) into a first-class, deterministic mechanism.
 
 ---
 
@@ -223,22 +256,70 @@ Two implementations behind one interface:
 
 Add a **transactional outbox** in the persistence layer so state change + event emit are atomic (no lost loot/quest events on crash).
 
-### 7.3 Domain event catalog (extracted from actual state changes)
+### 7.3 Complete domain event catalog
 
-| Event | Producer (today) | Consumers |
-|---|---|---|
-| `CharacterCreated` | `character/service.go Create` | quests (starter), analytics |
-| `ItemEquipped` / `ItemUnequipped` | `inventory/service.go MoveItem` | character (recalc stats — `main.go:268-288`) |
-| `MobKilled` / `PlayerKilled` | `combat/combat.go` (killedNow) | loot, quests, achievements |
-| `LootDropped` | `loot` roll in combat/offline | inventory, notifications |
-| `QuestProgressed` / `QuestCompleted` | `quests/service.go` | rewards, character |
-| `CharacterLeveledUp` | `character/service.go AddRewards` | stat recalc, notifications |
-| `GoldChanged` / `ExpGained` | `AddRewards` | idle economy, analytics |
-| `CharacterLoggedIn` / `LoggedOut` | `main.go` SELECT_CHARACTER / disconnect | idle catch-up trigger |
-| `OfflineGainsGranted` | `main.go:198-215` | notifications |
-| `CombatDamage` | `combat` | transport broadcast (`main.go:259-263`) |
+The current bus covers only **2 of ~18** real domain events; the other 16 happen today via direct synchronous calls (this is what couples `combat → loot → inventory → character`). **(NEW)** = emits nothing today.
 
-**Taxonomy:** Commands (`ExecuteAttack`, `MoveItem`) and Queries (`GetInventory`) stay direct calls into services; **Domain Events** (above) become the async reaction backbone; **Integration Events** (e.g. cross-node) ride Redis Streams. Sync events = stat recalc (must finish before next read); async = loot/quest/analytics.
+| Event | Payload | Producer (file:line) | Consumers |
+|---|---|---|---|
+| `ItemEquipped` / `ItemUnequipped` | CharacterID, Item | `inventory/service.go:175-194` | stat recalc `main.go:268-288` |
+| `CharacterLoggedIn` **(NEW)** | CharacterID, LastActiveAt | `main.go:140-150` | session start; offline-gains trigger; presence |
+| `CharacterLoggedOut` **(NEW)** | CharacterID | `main.go:366-371` | `UpdateLastActive` + `EndSession` |
+| `OfflineGainsGranted` **(NEW)** | CharacterID, Elapsed, Gold, Exp, LeveledUp, Loot | `main.go:199-214` | client packet; event-sourced replay |
+| `CombatAttackResolved` **(NEW)** | Attacker/Defender, Damage, IsCrit, HP, IsDead | `combat.go:224-234` | client `COMBAT_DAMAGE`; analytics; achievements |
+| `CharacterDamaged` **(NEW)** | CharacterID, Amount, NewHP, IsDead | `session.go:66-88` | threat/aggro; on-damage passives; UI |
+| `MobKilled` / `PlayerKilled` **(NEW)** | KillerID, VictimID, VictimType, LootTableID | `combat.go:177-197` (`killedNow`) | loot roll; quest progress; achievements; death penalty |
+| `LootDropped` **(NEW)** | CharacterID, TableID, Items[] | `combat.go:201`, `loot/service.go:40` | inventory add; gold add; UI |
+| `ItemAddedToInventory` **(NEW)** | CharacterID, ItemDefID, Qty, Slot | `inventory/service.go:83-113` | collect-item quests; achievements |
+| `GoldChanged` **(NEW)** | CharacterID, Delta, NewGold | `character/repository.go:214-223` | currency ledger; achievements; anti-cheat audit |
+| `ExperienceGained` **(NEW)** | CharacterID, Amount | `character/repository.go:216` | progression UI; analytics |
+| `CharacterLeveledUp` **(NEW)** | CharacterID, Old/NewLevel, StatGains | `character/repository.go:216-257` | stat recalc; unlock talents/skills; broadcast |
+| `StatsRecalculated` **(NEW)** | CharacterID, DerivedStats | `character/service.go:132` | session HP/MP refresh; UI |
+| `QuestAccepted` / `QuestProgressed` / `QuestCompleted` **(NEW)** | CharacterID, QuestID, Step/Rewards | `quests/service.go:82,120,128-147` | reward grant; achievements; follow-up unlock |
+| `RewardsGranted` **(NEW)** | CharacterID, Gold, Exp, Source | `character/service.go:135-147` | currency ledger; leveling; UI |
+
+### 7.4 Command / Query / Event taxonomy + sync-vs-async rule
+
+- **Commands** (`ExecuteAttack` `combat.go:73`, `MoveItem`, `AcceptQuest`, `AddRewards`) → **sync**, transactional, stay direct calls / HTTP handlers.
+- **Queries** (`GetByID`, `GetInventory`, `ListLootTables`) → **sync**, cacheable (loot already read-through cached `main.go:113-114`).
+- **Domain Events** (table above) → **async** for reactions (achievements, analytics, follow-on quests); **sync/transactional** only where correctness demands it.
+- **Integration Events** (WS packets `COMBAT_DAMAGE`/`OFFLINE_GAINS`, FFI to Rust) → async outbound fan-out; FFI is sync (C ABI).
+
+**The rule:** anything that must be atomic with a state write (loot/gold grant on kill, quest reward, gating stat recalc) is **sync-by-outbox** — written to the outbox in the *same DB transaction*, dispatched after commit. Everything else (projections, achievements, presence, client notifications) is **async post-commit**. Combat already hand-rolls exactly-once via `DeductHPAndReserveKill`/`killedNow` (`session.go:66-88`, `combat.go:177-189`) — the event layer *generalizes* that idempotency (keyed on `EventID`) instead of re-implementing it per feature.
+
+### 7.5 Transactional outbox + replay (typed)
+
+Fixes the crash-window where `inventory/service.go` publishes *after* the DB write (a crash drops the recalculation), and combat's 4-5 non-atomic writes (`combat.go:199-221`).
+
+1. Command handler writes the state change **and** the event row in one tx (e.g. the `AddRewards` tx at `character/repository.go:196-259` also inserts `CharacterLeveledUp`).
+2. A relay polls the `outbox` table (or Postgres `LISTEN/NOTIFY`) → dispatcher.
+3. Dispatcher fans out to in-proc handlers **and** Redis Streams (already wired via `pkg/cache`/`main.go:100-109`) with consumer groups + `XACK` (at-least-once) + a `-dead` stream (DLQ), replacing the recover-and-drop at `events.go:61-64`.
+4. **Replay for idle catch-up:** persist events in an append-only `event_log`; on `CharacterLoggedIn`, replay/aggregate missed ticks from `LastActiveAt` (`main.go:153`) instead of the inline offline formula loop (`main.go:160-196`).
+
+```go
+type DomainEvent interface{ EventType() EventType }   // typed — replaces `Payload any` @ events.go:18
+
+type Envelope struct {
+    ID         EventID       // idempotency key
+    Type       EventType
+    Stream     StreamID      // ordering key, e.g. "character:42"
+    Sequence   uint64        // monotonic within Stream (ExpGained→LeveledUp→Recalc never reorder)
+    OccurredAt time.Time
+    Payload    DomainEvent
+}
+type Outbox interface {
+    Append(ctx context.Context, tx pgx.Tx, ev DomainEvent, s StreamID) error // enlisted in caller's tx
+}
+type Subscriber interface {
+    On(t EventType, h func(ctx context.Context, e Envelope) error) // Handler returns error → retry/DLQ
+}
+type Dispatcher interface {
+    Publish(ctx context.Context, e Envelope) error
+    Replay(ctx context.Context, s StreamID, since uint64) ([]Envelope, error) // idle catch-up
+}
+```
+
+Vs today's `events.go`: `Handler` returns `error` (retry/DLQ vs the swallow at `events.go:66`); payloads typed; per-`Stream` ordering; durable in-tx `Append`; `Replay`.
 
 ---
 
@@ -262,16 +343,25 @@ Add a **transactional outbox** in the persistence layer so state change + event 
 
 ### 8.2 Hardcoded rules to externalize (with source)
 
-| Hardcode | Location | Target |
-|---|---|---|
-| Class base stats | `character/service.go:52-63` | `content/classes/*.yaml` |
-| Offline gold/exp formula | `main.go:161-165` | `content/formulas/offline.yaml` (DSL) |
-| Offline loot rate/caps (`0.50`, cap 10, 86400) | `main.go:154-196` | `content/formulas/offline.yaml` |
-| Dummy mob (`9999`, def 40, HP 1000, lvl 10) | `combat/combat.go` | `content/mobs/dummy.yaml` |
-| Loot table IDs `dummy_drops`/`player_drops` | `combat/combat.go`, `loot/service.go` | `content/loot/*.yaml` + registry |
-| Loot fallback item `dragon_sword_0` | `loot/service.go RollLoot` | remove; content-only |
-| Level-up `+2` base stats | `character` level logic | `content/formulas/leveling.yaml` |
-| WS message types (`CHAT`/`SELECT_CHARACTER`/`COMBAT_ATTACK`) | `main.go:124-265` | plugin-registered message handlers |
+| # | Hardcode | Location | Target |
+|---|---|---|---|
+| 1 | Offline gold formula `elapsed/60*(10+STR*0.5)` | `main.go:163` | formula expr; constants in idle-config |
+| 2 | Offline exp formula `elapsed/60*(15+INT*0.8)` | `main.go:164` | formula expr; constants in idle-config |
+| 3 | Offline caps (10s min, 86400 max, 10 rolls, 50% drop, 1%/min) | `main.go:154,156-158,168-175` | idle-config data file |
+| 4 | Loot table IDs `dummy_drops`/`player_drops` | `main.go:176`, `combat.go:191-195` | NPC-def field `loot_table_id`; remove literals |
+| 5 | `dummy_drops` fallback + item `dragon_sword_0` baked in code | `loot/service.go:44-49` | seed row in `loot_tables`; delete fallback |
+| 6 | Mob stats (`lvl 10, def 40, dex 10, HP 1000`, id `9999`) | `combat.go:103-108` | NPC/Mob definition table |
+| 7 | Kill→quest target mapping (`"wolf"`, `"player"`) | `combat.go:193,196` | NPC-def `quest_tag`; carried on `MobKilled` |
+| 8 | Class starting stats (WARRIOR/MAGE/ASSASSIN/SURA) | `character/service.go:52-63` | `content/classes/*.yaml` |
+| 9 | `StatGainPerLevel = 2` | `character/leveling.go:4` | progression config; per-class growth |
+| 10 | Level-up applies to fixed `{STR,INT,DEX,CON}` | `character/leveling.go:40` | class growth table (per-stat gains) |
+| 11 | XP curve `level*level*100` | `character/leveling.go:9` | progression config (curve params / expr) |
+| 12 | Fallback derived-stat coeffs (`CON*15`,`INT*10`,`STR*2`,crit `5`) | `character/stats.go:13-19` | stat-formula data (one source shared with Rust) |
+| 13 | Combat hit/dodge formula + 70–99% clamp | `statclient/client.go:222-231` | formula expr + tunable clamp constants |
+| 14 | Crit multiplier `1.5`, variance `±10%` | `statclient/client.go:259,263` | combat-formula config/expr |
+| 15 | WS message types (`CHAT`/`SELECT_CHARACTER`/`COMBAT_ATTACK`) | `main.go:124-265` | plugin-registered message handlers |
+
+> Items/quests/loot **payloads** are already externalized (JSONB, migrations `000003/000005/000006`). The residual hardcoding is *call-site coupling* (#4, #7) and *formulas/constants* (#1-3, #8-14).
 
 ### 8.3 Loader
 
@@ -279,7 +369,14 @@ Add a **transactional outbox** in the persistence layer so state change + event 
 
 ### 8.4 Formula / scripting recommendation
 
-**Recommend a small embedded expression evaluator (e.g. an `expr`-style DSL), NOT Lua**, for v1. Rationale: designer formulas here are pure arithmetic over named stats (`10 + STR*0.5`, damage curves) — an expression DSL is sandboxed-by-construction, allocation-light, trivially testable, and has no GIL/embedding overhead. Reserve a Lua/WASM plugin for a later version *if* full behavioral scripting (custom AI, event scripts) is demanded. Formula example:
+**Recommend a single sandboxed expression DSL — `github.com/expr-lang/expr` — as the one formula language; do NOT introduce Lua for formulas.** Rationale for this Go engine specifically:
+
+1. **The math is expression-shaped, not program-shaped.** Every externalization target (#1-3, #9-14 above) is pure arithmetic over a small typed env (`STR`, `attacker.Attack`, `minutes`). `expr` compiles these directly; a Lua VM is overkill.
+2. **Safe by construction.** `expr` is non-Turing-complete (no loops/IO) → a designer-authored, hot-reloaded formula cannot hang or crash the server. With gopher-lua you must build the sandbox yourself.
+3. **Static typing + compile-once.** `expr` type-checks against a Go struct env at load and compiles to a reusable program — fits the per-attack hot path (`combat.go:162` calls the formula on every attack); a Lua state per call or a shared-locked state does not.
+4. **Kills the drift risk.** `stats.go:8-11` explicitly warns the Go fallback and Rust resolver can diverge — one `expr` formula source consumed by both paths removes the two hand-maintained copies.
+
+Reserve Lua/WASM **later and scoped only** to control-flow-heavy behavior (boss AI, scripted world events) — never for numeric formulas. Formula example:
 
 ```yaml
 # content/formulas/offline.yaml
@@ -293,17 +390,25 @@ max_hours: 24
 
 ## 9. Extension Points (Hooks)
 
-Map every current hardcoded decision to a named hook resolved via registry:
+**Two deliberately distinct mechanisms.** A **hook** is synchronous, priority-ordered, and *returns a value* — for **computing** a rule (damage, gains). An **event** is async, fire-and-forget — for **reacting** to a fact (quest progress on kill). The existing equip→recalc flow (`main.go:268`) is correctly an event and stays one; the kill→loot/quest chain currently mis-implemented as direct calls (`combat.go:193-217`) splits into a `MobKilled` *event* (reactions) plus reward *hooks* (computation).
 
-| Hook | Replaces | Signature (sketch) |
-|---|---|---|
-| `combat.DamageResolver` | Rust call + Go fallback in `combat/combat.go` | `Resolve(ctx, Attacker, Defender, Skill) DamageResult` |
-| `combat.OnKill` | inline loot/quest chain in `ExecuteAttack` | event `MobKilled` → subscribers |
-| `loot.Roller` | `loot/service.go RollLoot` | `Roll(ctx, tableID) []Drop` |
-| `reward.Calculator` | `AddRewards` gold/exp math | DSL-driven |
-| `idle.GainsCalculator` | `main.go:161-196` | `Compute(elapsed, stats) Gains` |
-| `character.StatRecalc` | `RecalculateStats` | already a service — expose as hook |
-| `transport.MessageHandler` | WS `switch` `main.go:124-265` | plugins register `(type → handler)` |
+Map every current hardcoded decision to a named hook/event resolved via registry:
+
+| Extension point | Kind | Replaces (file:line) | Signature (sketch) |
+|---|---|---|---|
+| `capability:stat.resolver` | capability | Rust call, swappable (`combat.go:144-162`, `character/service.go:120`) | `Calculate/CalculateDamage(ctx, req)` |
+| `hook:combat.damage.calc` | hook | Go fallback damage `atk-def,min1` (`combat.go:165-172`) | `func(ctx, DamageCtx) DamageResult` |
+| `hook:combat.target.resolve` | hook | dummy `9999/def40/hp1000` (`combat.go:103-120`) | `func(ctx, id) (TargetStats, bool)` |
+| `hook:combat.death.rewards` | hook | table selection `dummy_drops`/`player_drops` (`combat.go:191-197`) | `func(ctx, DeathCtx) RewardBundle` |
+| `event:MobKilled` | event | inline quest tags `wolf`/`player` (`combat.go:193,196`) | quests/achievements subscribe |
+| `hook:loot.roll` | hook | RNG + `rate<10000` algo (`loot/service.go:54-66`) | `func(ctx, LootRollCtx) []Drop` |
+| `hook:reward.apply` | hook | gold-vs-item dispatch (`combat.go:205-219`, `main.go:179-191`) | `func(ctx, DroppedItem) error` |
+| `hook:offline.gains.calc` | hook | offline formula (`main.go:161-164`) | `func(ctx, OfflineCtx) OfflineReward` |
+| `hook:offline.loot.roll` | hook | offline loot (`main.go:166-195`) | `func(ctx, OfflineCtx) []Drop` |
+| `hook:character.create.stats` | hook | class base stats (`character/service.go:52-63`) | data-driven `class_def` |
+| `hook:stat.recalc.modifiers` | hook | equip modifier assembly (`character/service.go:94-116`) | contribute `[]Modifier` |
+| `event:CharacterLeveledUp` | event | level-up recalc (`character/service.go:142`) | already event-shaped |
+| `RegisterMessageHandler` | transport | WS `switch` (`main.go:124-265`) | per-type, per-plugin |
 
 ---
 
@@ -355,15 +460,19 @@ Deploy shape: N stateless engine nodes (behind LB), Redis (streams + cache + ses
 - H3. Formula DSL; externalize offline-gains (`main.go:161-196`) and leveling.
 - H4. Register WS message handlers via plugins (remove `main.go` switch).
 
+- H5. **Unify the `Modifier` concept** into one shared-kernel type (kills the 3× duplication A9); introduce a single `CharacterID` value type (A10) to end the `int32/int64` casts.
+- H6. **Move interface ownership to consumers** — `combat`/`quests` declare the minimal interfaces they need instead of importing producers' full service surface (prerequisite for the plugin/hook layer).
+
 **Medium:**
-- M1. Persistence abstraction (`Store`/`UnitOfWork`) over pgx (A6, DB-independence).
-- M2. Transport abstraction (HTTP+WS behind `Router`).
-- M3. Redis-Streams event impl + transactional outbox.
+- M1. Persistence abstraction (`Store`/`UnitOfWork`) over pgx (A6, DB-independence); pull leveling orchestration out of `character/repository.go:195-265` into an aggregate method (A11).
+- M2. Transport abstraction (HTTP+WS behind `Router`); lift the `CombatSession`/`Encounter` aggregate out of `socket` into a domain package (A8).
+- M3. Redis-Streams event impl + transactional outbox + `event_log` replay; add `log.Error` on the swallowed economy writes first (A13).
+- M4. **De-globalize** `events.globalBus` and `socket.globalRegistry` into engine-owned instances (A12) — unlocks isolated test/sharded worlds.
 
 **Low:**
 - L1. `enginectl` CLI (scaffold plugin, validate content).
-- L2. `math/rand/v2` to drop `randMu`.
-- L3. Move remaining hardcodes (dummy mob, fallback item).
+- L2. `math/rand/v2` to drop `randMu` (`loot/service.go`).
+- L3. Move remaining hardcodes (dummy mob, fallback item); evict-on-idle for `keyedMutex` map growth.
 
 ---
 
@@ -400,6 +509,12 @@ Deploy shape: N stateless engine nodes (behind LB), Redis (streams + cache + ses
 | Single-node state | `SessionRegistry`, `keyedMutex` | Correct today, wrong at horizontal scale (comments already flag it) |
 | Hardcoded magic values | class stats, `9999`, `dummy_drops`, `dragon_sword_0`, `+2`, `86400` | Every balance change = code change + redeploy |
 | No idle scheduler | offline gains only computed on login (`main.go`) | Not a true "always-on" idle economy |
+| `Modifier` duplicated 3× | `character.EquipmentModifier`, `statclient.Modifier`, `items.StatModifier` | Every new content type re-implements + translates it |
+| ID type chaos | `int32` vs `int64` character IDs across packages | Casts everywhere; blocks a typed `CharacterID` |
+| Gameplay state in transport | `socket.SessionRegistry` (`session.go:21-27`) | Two systems of record; lost on restart; blocks scale-out |
+| Anemic model + logic in repos | `character/repository.go:195-265` leveling in a SQL tx | Domain not testable/reusable in isolation |
+| Global singletons | `events.globalBus`, `socket.globalRegistry` | No isolated worlds / clean tests / sharding |
+| Silent economy loss | swallowed errors `combat.go:207,216`, `main.go:190` | Players short-changed with no log/retry/alert |
 
 ---
 
