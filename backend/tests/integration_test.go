@@ -20,6 +20,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
@@ -96,7 +97,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), questService, lootService, invService)
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService))
 
 	// WebSocket handler routing callback
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
@@ -504,7 +505,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	hub := socket.NewHub()
 	go hub.Run()
 
-	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), questService, lootService, invService)
+	combatService := combat.NewCombatService(charService, statClient, socket.GetRegistry(), killreward.New(charService, questService, lootService, invService))
 
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
@@ -108,7 +109,8 @@ func TestCombatExecutionPvE(t *testing.T) {
 
 	questSvc := &mockQuestService{}
 
-	service := NewCombatService(charService, statClient, registry, questSvc, nil, nil)
+	rewarder := killreward.New(charService, questSvc, nil, nil)
+	service := NewCombatService(charService, statClient, registry, rewarder)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{

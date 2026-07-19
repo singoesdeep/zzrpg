@@ -5,12 +5,20 @@ import (
 	"errors"
 
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
+
+// KillRewarder handles the side effects of a kill — quest progress, loot roll,
+// and applying drops (gold/items) — and returns the rolled loot so the attack
+// response can include it. It is a consumer-defined interface so that combat
+// need not depend on the quest, loot, or inventory services directly: combat
+// owns the mechanism (dealing damage, reserving the kill), while policy (what a
+// kill rewards) lives behind this seam. Implemented by internal/killreward.
+type KillRewarder interface {
+	RewardKill(ctx context.Context, killerID, victimID int64) []loot.DroppedItem
+}
 
 var (
 	ErrAttackerNotFound = errors.New("attacker not found or session inactive")
@@ -44,29 +52,23 @@ type CombatService interface {
 }
 
 type combatService struct {
-	charService  character.CharacterService
-	statClient   statclient.Client
-	registry     *socket.SessionRegistry
-	questSvc     quests.QuestService
-	lootSvc      loot.LootService
-	inventorySvc inventory.InventoryService
+	charService character.CharacterService
+	statClient  statclient.Client
+	registry    *socket.SessionRegistry
+	rewarder    KillRewarder
 }
 
 func NewCombatService(
 	charService character.CharacterService,
 	statClient statclient.Client,
 	registry *socket.SessionRegistry,
-	questSvc quests.QuestService,
-	lootSvc loot.LootService,
-	inventorySvc inventory.InventoryService,
+	rewarder KillRewarder,
 ) CombatService {
 	return &combatService{
-		charService:  charService,
-		statClient:   statClient,
-		registry:     registry,
-		questSvc:     questSvc,
-		lootSvc:      lootSvc,
-		inventorySvc: inventorySvc,
+		charService: charService,
+		statClient:  statClient,
+		registry:    registry,
+		rewarder:    rewarder,
 	}
 }
 
@@ -184,41 +186,12 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 
 	// 5. Trigger death progression (loot, quest progress) only for the attacker
 	// that actually killed the defender — prevents double loot/quest rewards when
-	// concurrent attackers finish the same target.
+	// concurrent attackers finish the same target. The orchestration lives behind
+	// KillRewarder so combat stays decoupled from the quest/loot/inventory
+	// services; it runs synchronously so the rolled loot is part of the response.
 	var rolledLoot []loot.DroppedItem
-	if killedNow {
-		var tableID string
-		if req.DefenderID == 9999 {
-			tableID = "dummy_drops"
-			_ = s.questSvc.UpdateQuestProgress(ctx, int32(req.AttackerID), "KILL_MOB", "wolf", 1)
-		} else {
-			tableID = "player_drops" // or default PvP table
-			_ = s.questSvc.UpdateQuestProgress(ctx, int32(req.AttackerID), "KILL_MOB", "player", 1)
-		}
-
-		// Roll Loot drops!
-		if s.lootSvc != nil {
-			drops, err := s.lootSvc.RollLoot(ctx, tableID)
-			if err == nil {
-				rolledLoot = drops
-				// Process drops: add gold or items
-				for _, drop := range drops {
-					if drop.ItemDefinitionID == "gold" {
-						_, _, _ = s.charService.AddRewards(ctx, req.AttackerID, int64(drop.Quantity), 0)
-					} else {
-						if s.inventorySvc != nil {
-							invItem := &inventory.InventoryItem{
-								CharacterID:      int32(req.AttackerID),
-								ItemDefinitionID: drop.ItemDefinitionID,
-								Quantity:         drop.Quantity,
-								Durability:       100,
-							}
-							_ = s.inventorySvc.AddItem(ctx, invItem)
-						}
-					}
-				}
-			}
-		}
+	if killedNow && s.rewarder != nil {
+		rolledLoot = s.rewarder.RewardKill(ctx, req.AttackerID, req.DefenderID)
 	}
 
 	return &AttackResult{

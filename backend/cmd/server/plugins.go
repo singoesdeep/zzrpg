@@ -17,6 +17,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
@@ -551,7 +552,8 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	hub := registry.MustResolve[*socket.Hub](reg, "hub")
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 
-	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), questService, lootService, invService)
+	rewarder := killreward.New(charService, questService, lootService, invService)
+	combatService := combat.NewCombatService(charService, stat.client, socket.GetRegistry(), rewarder)
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {
