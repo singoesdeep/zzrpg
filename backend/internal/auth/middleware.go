@@ -13,6 +13,7 @@ type contextKey string
 const (
 	UserIDKey   contextKey = "userID"
 	UsernameKey contextKey = "username"
+	RoleKey     contextKey = "role"
 )
 
 func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
@@ -35,9 +36,11 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			tokenString := parts[1]
 			claims := &Claims{}
 
+			// Pin the accepted signing algorithm to HS256 to defend against
+			// algorithm-substitution attacks (e.g. a forged "none" token).
 			token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
 				return secretBytes, nil
-			})
+			}, jwt.WithValidMethods([]string{"HS256"}))
 
 			if err != nil || !token.Valid {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid or expired token")
@@ -47,10 +50,32 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 			// Add claims to request context
 			ctx := context.WithValue(r.Context(), UserIDKey, claims.UserID)
 			ctx = context.WithValue(ctx, UsernameKey, claims.Username)
+			ctx = context.WithValue(ctx, RoleKey, claims.Role)
 
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// RequireAdmin wraps a handler and rejects requests whose authenticated user
+// does not have the admin role. Compose it inside AuthMiddleware so the role is
+// present in the request context.
+func RequireAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if RoleFromContext(r.Context()) != RoleAdmin {
+			writeError(w, http.StatusForbidden, "FORBIDDEN", "administrator role required")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// RoleFromContext retrieves the role from context. Returns empty string if absent.
+func RoleFromContext(ctx context.Context) string {
+	if role, ok := ctx.Value(RoleKey).(string); ok {
+		return role
+	}
+	return ""
 }
 
 // UserIDFromContext retrieves the user ID from context. Returns 0 if not present.

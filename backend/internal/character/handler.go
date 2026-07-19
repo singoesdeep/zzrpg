@@ -122,6 +122,12 @@ func GetHandler(service CharacterService) http.HandlerFunc {
 			return
 		}
 
+		userID := auth.UserIDFromContext(r.Context())
+		if userID == 0 {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "User context not found")
+			return
+		}
+
 		char, err := service.GetByID(r.Context(), charID)
 		if err != nil {
 			if errors.Is(err, ErrCharacterNotFound) {
@@ -129,6 +135,13 @@ func GetHandler(service CharacterService) http.HandlerFunc {
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to retrieve character")
+			return
+		}
+
+		// Ownership check: a user may only read their own characters. Return 404
+		// (not 403) so IDs belonging to other users cannot be enumerated.
+		if char.UserID != userID {
+			writeError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
 			return
 		}
 
@@ -160,6 +173,12 @@ func GetStatsHandler(service CharacterService) http.HandlerFunc {
 			return
 		}
 
+		userID := auth.UserIDFromContext(r.Context())
+		if userID == 0 {
+			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "User context not found")
+			return
+		}
+
 		char, err := service.GetByID(r.Context(), charID)
 		if err != nil {
 			if errors.Is(err, ErrCharacterNotFound) {
@@ -167,6 +186,12 @@ func GetStatsHandler(service CharacterService) http.HandlerFunc {
 				return
 			}
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Failed to retrieve stats")
+			return
+		}
+
+		// Ownership check (see GetHandler). Prevents reading other users' stats.
+		if char.UserID != userID {
+			writeError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
 			return
 		}
 

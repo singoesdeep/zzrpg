@@ -15,6 +15,7 @@ var (
 	ErrLevelRestricted    = errors.New("character level is too low to equip this item")
 	ErrClassRestricted    = errors.New("character class is restricted from equipping this item")
 	ErrInvalidEquipmentSlot = errors.New("item slot type does not match equipment slot")
+	ErrNotOwner             = errors.New("character does not belong to the requesting user")
 )
 
 const (
