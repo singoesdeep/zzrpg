@@ -1,120 +1,139 @@
-# Mimari Belgesi: zzrpg Backend (TR)
+# Mimari Dokümanı: zzrpg Motoru (TR)
 
-Bu belge, `zzrpg` projesinin üst düzey sistem mimarisini, modüler monolit tasarımını, teknoloji yığınını ve bileşenler arası iletişim kalıplarını özetlemektedir.
+`zzrpg`, idle online RPG'ler için **plugin-öncelikli, olay-güdümlü, veri-güdümlü
+bir backend motorudur**. Oyundan bağımsız bir **kernel** yaşam döngüsünü ve
+altyapıyı sahiplenir; oyun alanları (domain) birer **plugin**'dir; kurallar ve
+içerik **veridir**; alanlar node'lar arasına yayılan **tipli bir olay bus'ı**
+üzerinden haberleşir.
 
-## 1. Sistem Mimari Diyagramı
-
-Aşağıda, `zzrpg` sisteminin üst düzey mimari şeması gösterilmektedir. Sistem, Go dilinde geliştirilmiş bir **Modüler Monolit** backend ve statü hesaplamaları için süreç-içi FFI bağlayıcıları vasıtasıyla doğrudan bağlanan, oldukça optimize edilmiş bir **Rust zzstat core kütüphanesi** üzerine kuruludur.
+## 1. Sistem Mimarisi
 
 ```mermaid
 graph TD
-    %% Clients
-    Browser[Tarayıcı / Next.js İstemci]
+    Browser[İstemci]
 
-    %% Gateway/API Layer
-    subgraph Go Backend (Modüler Monolit)
-        API[Go API Sunucusu REST/WS]
-        
-        %% Internal Modules
-        subgraph Dahili Modüller
-            Auth[Yetkilendirme Modülü]
-            Char[Karakter Modülü]
-            Inv[Envanter Modülü]
-            Equip[Ekipman Modülü]
-            Combat[Savaş Modülü]
-            Skill[Yetenek Modülü]
-            Quest[Görev Modülü]
-            Guild[Lonca Modülü]
-            Econ[Ekonomi Modülü]
-            Loot[Ganimet Modülü]
-        end
-        
-        %% Shared Core Packages
-        Database[Veritabanı Paketi - pgx]
-        RedisClient[Redis İstemcisi - Oturum/Önbellek/Kilitler]
-        WS[WebSocket Yöneticisi]
-        StatClient[Statü İstemcisi - FFI]
-        EventBus[Süreç-İçi Olay Veriyolu]
+    subgraph Kernel["Motor Kernel (oyundan bağımsız)"]
+        Lifecycle[Yaşam döngüsü: topo-sıralı Init/Start/Stop]
+        Registry[Tipli DI Registry]
+        Bus[Tipli Olay Bus + Fanout]
+        HTTP[HTTP zinciri: recover / request-id / log / secure / rate-limit / metrics]
     end
 
-    %% External Infrastructure
-    DB[(PostgreSQL Veritabanı)]
-    Redis[(Redis Önbellek ve Mesaj Aracısı)]
-    RustStat[Rust zzstat Core Kütüphanesi]
+    subgraph Plugins["Domain Plugin'leri"]
+        Core[core: db, cache, hub, router, outbox relay, metrics]
+        Auth[auth]
+        Char[character]
+        Inv[inventory]
+        Loot[loot]
+        Quest[quests]
+        Combat[combat]
+        Items[items]
+    end
 
-    %% Connections
-    Browser <-->|HTTPS / WSS| API
-    
-    %% Go Internal relations
-    API --> Auth
-    API --> Char
-    API --> Inv
-    API --> Equip
-    API --> Combat
-    API --> Skill
-    API --> Quest
-    API --> Guild
-    API --> Econ
-    API --> Loot
-    
-    %% Infrastructure access
-    Dahili Modüller --> Database
-    Dahili Modüller --> RedisClient
-    Dahili Modüller --> WS
-    Dahili Modüller --> StatClient
-    Dahili Modüller --> EventBus
-    
-    Database <--> DB
-    RedisClient <--> Redis
-    StatClient <-->|FFI Süreç-İçi Çağrılar| RustStat
+    subgraph EnginePkgs["Motor Paketleri"]
+        Store[store: pgx üzerinde Store/UnitOfWork]
+        Outbox[outbox: transactional Append + Relay]
+        Stream[eventstream: Redis Streams fan-out]
+        EventLog[eventlog: append-only replay]
+        StatClient[statclient: Rust zzstat'a FFI]
+    end
+
+    DB[(PostgreSQL)]
+    Redis[(Redis)]
+    RustStat[Rust zzstat çekirdeği]
+
+    Browser <-->|REST / WS| HTTP
+    HTTP --> Plugins
+    Plugins --> Registry
+    Plugins --> Bus
+    Plugins --> Store
+    Combat --> StatClient
+    Core --> Outbox
+    Bus <-->|broadcast| Stream
+    Store <--> DB
+    Outbox <--> DB
+    EventLog <--> DB
+    Stream <--> Redis
+    StatClient <-->|süreç-içi FFI| RustStat
 ```
+
+Go backend, sabit-bağlı modüllerden oluşan bir monolit **değildir**: kernel
+alanları deklaratif olarak bağlar; bir alan, core'a dokunmadan eklenebilir,
+çıkarılabilir veya yeniden sıralanabilir. Stat/combat matematiği ise süreç-içi FFI
+ile gömülü Rust çekirdeğine devredilir (ağ atlaması yok).
 
 ---
 
-## 2. Go Backend Modül Yapısı
+## 2. Katmanlar
 
-Go backend kod yapısı, temiz mimari (clean architecture), alan yalıtımı (domain isolation) ve modüler monolit prensiplerini takip eder. Her alan; kendi deposu (repository), servisi ve taşıma (transport) işleyicileriyle bağımsız bir yapıdadır.
+### 2.1 Motor kernel (`backend/engine/kernel`)
+Config, logger, DI registry, olay bus'ı, HTTP mux + middleware zinciri ve
+Prometheus metriklerini sahiplenir. `Run`, plugin'leri deklare ettikleri
+`Requires`'a göre topolojik sıralar; sırayla `Init` sonra `Start` çağırır; iptal
+olana dek HTTP sunar; sonra ters sırayla `Stop` eder. Sıfır RPG kavramı içerir.
 
-```
-backend/
-├── cmd/
-│   └── server/
-│       └── main.go           # Uygulama giriş noktası, bağımlılık enjeksiyonu ve sunucu başlangıcı
-├── internal/
-│   ├── auth/                 # Kullanıcı kaydı, yetkilendirme, JWT token işlemleri
-│   ├── character/            # Karakter oluşturma, temel bilgiler, seviye/deneyim, çevrimdışı ilerleme
-│   ├── inventory/            # Oyuncu envanterleri, eşya depolama, eşya taşıma işlemleri
-│   ├── items/                # Eşya tanımları (veri-odaklı), istatistik modifikatörleri
-│   ├── equipment/            # Kuşanılmış aktif eşyalar, yuva (slot) doğrulama mantığı
-│   ├── combat/               # Dynamic combat loop, calculated via zzstat
-│   ├── skills/               # Yetenek şablonları, yetenek seviyeleri, yükseltmeler
-│   ├── quests/               # Veri-odaklı görev adımları, ilerleme, ödüller
-│   ├── guild/                # Lonca oluşturma, rütbeler, lonca bankası ve statü bonusları
-│   ├── economy/              # Altın/para birimleri, pazar işlem günlükleri
-│   ├── loot/                 # Olasılık tabanlı ganimet tabloları, canavar drop mekanikleri
-│   ├── statclient/           # Süreç-içi FFI istemcisi, Rust zzstat core kütüphanesini yükler ve yürütür
-│   ├── database/             # PostgreSQL bağlantı havuzu yapılandırması ve göç (migration) çalıştırıcı
-│   ├── events/               # Modülleri gevşek bağlamak (decoupling) için olay yayıncı/abone yapısı
-│   └── websocket/            # Bağlantı yöneticisi, hub, okuma/yazma döngüleri ve oyun bildirimleri
-├── pkg/
-│   ├── config/               # Çevre değişkenleri üzerinden yapılandırma ayrıştırma
-│   ├── logger/               # Yapılandırılmış günlük kaydı (slog/zap)
-│   └── utils/                # Genel yardımcılar (UUID, şifreleme, vb.)
-├── go.mod
-├── go.sum
-```
+### 2.2 Plugin sözleşmesi (`backend/engine/plugin`)
+Bir plugin `Meta{Name, Requires}` deklare eder ve `Init/Start/Stop` uygular. `Init`
+bir `InitContext` alır (registry, bus, mux, config, logger, context); `Start` bir
+`RunContext` alır. Plugin'ler servisleri registry'ye **provide** eder ve bağımlı
+olduklarını **resolve** eder — bağımlılıklar elle set edilmez, deklare edilir. Bu,
+döngüleri (ör. character ↔ inventory) sıralamayla çözer.
 
-### Modül Sınırları ve Bağımlılık Enjeksiyonu (Dependency Injection)
-1. **Yalıtım**: Modüller, doğrudan başka bir modülün veritabanı tablolarına erişmemelidir. Diğer modüller tarafından sunulan ortak arayüzleri/servisleri kullanmalıdırlar.
-2. **Depo Örüntüsü (Repository Pattern)**: Veritabanı işlemleri, test edilebilir ve taklit edilebilir (mock) olması için depo arayüzleri arkasında soyutlanır.
-3. **Alan Olay Veriyolu (Domain Event Bus)**: Sıkı sıkıya bağlı bağımlılıkları önlemek için modüller, uygun olan yerlerde `internal/events` kullanarak asenkron olarak haberleşir (örneğin, bir karakter seviye atladığında, `Character` modülünün içine doğrudan kod yazmadan `Quest` modülü olay veriyolunu dinleyerek görev ilerlemesini günceller).
+### 2.3 Tipli registry, bus & fan-out
+- **Registry** — tipli generic `Provide[T]/Resolve[T]`.
+- **Bus** — tipli `Event`/`Handler`/`Subscribe`/`Publish`; async, panik-izole. Bir
+  **Fanout** decorator'ıyla sarılıdır: `Publish` yerelde dağıtır ve bir forwarder
+  kuruluysa diğer node'lara yayınlar; `PublishLocal` uzak olayları yeniden-forward
+  etmeden enjekte eder (cluster döngüsü yok).
+- **eventstream** — Redis-Streams `Publisher` + node başına `Consumer` (broadcast
+  fan-out, origin de-dup). Redis yoksa uygulama tek-node çalışır.
+
+### 2.4 Kalıcılık (`engine/store`)
+`Querier` (Query/QueryRow/Exec — hem `*pgxpool.Pool` hem `pgx.Tx` karşılar) artı
+`WithinTx(fn)` içeren bir `Store`. Repository'ler `store.Store`'a bağlıdır; bir
+metot tek başına ya da bir transaction içinde çalışır. Migration'lar gömülü SQL'dir,
+başlangıçta otomatik çalışır ve idempotenttir.
+
+### 2.5 Dayanıklı olaylar (`engine/outbox`, `engine/eventlog`)
+- **Outbox** — `Append(ctx, Querier, event)` olayı state değişikliğiyle *aynı
+  transaction'da* yazar; bir `Relay` dispatch edilmemiş satırları poll eder,
+  paylaşılan registry ile decode edip bus'a yayınlar (at-least-once) ve eski
+  dispatch edilmiş satırları budar.
+- **event_log** — append-only, stream başına geçmiş; `Replay(stream, since)`
+  yeniden-bağlanma yakalamasını besler (girişte `AWAY_EVENTS`).
+
+### 2.6 Veri-güdümlü içerik (`backend/content`)
+Gömülü JSON pack'ler: class temel statları, derived-stat katsayıları, mob
+tanımları, combat hasar formülü (`zzstat` AST'si), idle/offline ekonomi ve loot
+fallback tabloları. `statclient` bunları Rust çekirdeğine besler, matematiği
+gömmez.
 
 ---
 
-## 3. Teknoloji Yığını
+## 3. Domain'ler (plugin'ler, `backend/internal`)
 
-- **Ana Dil**: Hızlı performans, düşük bellek kullanımı, eşzamanlılık (concurrency) araçları ve basit sözdizimi için Go (1.23+).
-- **Veritabanı**: Sürücü olarak `pgx` kullanan PostgreSQL (16+). İşlem bütünlüğünü (ACID) kaybetmeden veri-odaklı oyun tasarımları yapabilmek için yoğun JSONB sütun kullanımı.
-- **Önbellek ve Mesaj Aracısı**: Oyuncu çevrimiçi durum takibi, oturum depolama, dağıtık kilitler (savaş/ticaret kilitleri) ve WebSocket olay pub/sub işlemleri için Redis (7+).
-- **Statü Servisi**: Paylaşımlı kütüphane (`libzzstat_ffi.so`) olarak derlenen ve `purego` FFI bağlayıcıları ile doğrudan Go'ya süreç-içi olarak gömülen Rust tabanlı `zzstat` çekirdek motoru.
-- **WebSockets**: Gerçek zamanlı olayları (savaş günlükleri, sohbet, kazanılan eşyalar) tarayıcıya iletmek için standart veya `gorilla/websocket` kütüphanesi.
+`auth`, `character`, `inventory`, `items`, `loot`, `quests`, `combat`,
+`killreward`, `session`, `socket`, `statclient`, `database`. Her biri kendi
+içinde bütündür (repository + service + transport). Alanlar-arası çağrılar
+**tüketici-sahipli minimal arayüzlerden** geçer (tüketici yalnızca ihtiyaç
+duyduğu yüzeyi deklare eder, ör. `combat.CharacterReader`); tepkiler olay bus'ından
+geçer, böylece üreticiler tüketicilerine bağımlı olmaz.
+
+---
+
+## 4. Teknoloji Yığını
+
+- **Go** — kernel, plugin'ler, eşzamanlılık, HTTP/WS gateway.
+- **PostgreSQL 16+** (`pgx`) — `store` seam'i arkasında kalıcılık; veri-güdümlü
+  alanlar için JSONB; outbox / event_log / refresh_tokens tabloları.
+- **Redis 7+** — read-through cache ve node'lar-arası olay stream'i (opsiyonel;
+  tek-node'a graceful degradation).
+- **Rust `zzstat`** — `libzzstat_ffi.so`'ya derlenen stat/combat formül çekirdeği,
+  `purego` FFI ile gömülü (ağ maliyeti yok).
+- **Gözlemlenebilirlik & sertleştirme** — Prometheus `/metrics`, `/readyz`,
+  request-id, IP-başı rate limit, güvenlik başlıkları, login brute-force koruması,
+  rotating refresh token'lar.
+
+Tam tasarım, gerekçe ve yol haritası (planlanan hook/filter sistemi ve üçüncü-parti
+eklentiler için runtime plugin sınırı dahil) için bkz.
+[`ENGINE_TRANSFORMATION_PLAN.md`](ENGINE_TRANSFORMATION_PLAN.md).

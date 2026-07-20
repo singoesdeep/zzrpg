@@ -2,6 +2,20 @@
 
 To achieve a fully **data-driven** design where new items, skills, buffs, quests, recipes, and loot rules require only database edits, we rely on a PostgreSQL schema combined with JSONB for dynamic properties.
 
+> **Engine update.** Migrations are embedded SQL, run **automatically at startup**
+> (idempotent), and tracked in `schema_migrations`. Beyond the game tables, the
+> engine adds:
+>
+> - `outbox` — transactional outbox; domain events written in the same tx as the
+>   state change, dispatched after commit, then pruned (`published_at`).
+> - `event_log` — append-only per-stream event history for replay
+>   (`stream`, `event_type`, `payload`, `occurred_at`).
+> - `refresh_tokens` — rotating, revocable refresh tokens (SHA-256 hash only,
+>   `expires_at`, FK to `users`, `ON DELETE CASCADE`).
+>
+> Repositories access these through the `store.Store`/`Querier` seam (a method
+> runs standalone or inside `WithinTx`), not a raw `*pgxpool.Pool`.
+
 ---
 
 ## 1. Schema Diagram & Relationships

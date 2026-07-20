@@ -1,120 +1,137 @@
-# Architecture Document: zzrpg Backend (EN)
+# Architecture Document: zzrpg Engine (EN)
 
-This document outlines the high-level system architecture, modular monolith design, technology stack, and component communication patterns for `zzrpg`.
+`zzrpg` is a **plugin-first, event-driven, data-driven backend engine** for idle
+online RPGs. A game-agnostic **kernel** owns the lifecycle and infrastructure;
+game domains are **plugins**; rules and content are **data**; domains communicate
+through a **typed event bus** that fans out across nodes.
 
-## 1. System Architecture Diagram
-
-Below is the high-level architecture of `zzrpg`. The architecture is designed as a **Modular Monolith** for the Go backend, coupled with a specialized, highly optimized **Rust zzstat core engine** embedded directly via in-process FFI bindings for stat computation.
+## 1. System Architecture
 
 ```mermaid
 graph TD
-    %% Clients
-    Browser[Browser / Next.js Client]
+    Browser[Client]
 
-    %% Gateway/API Layer
-    subgraph Go Backend (Modular Monolith)
-        API[Go API Server REST/WS]
-        
-        %% Internal Modules
-        subgraph Internal Modules
-            Auth[Auth Module]
-            Char[Character Module]
-            Inv[Inventory Module]
-            Equip[Equipment Module]
-            Combat[Combat Module]
-            Skill[Skill Module]
-            Quest[Quest Module]
-            Guild[Guild Module]
-            Econ[Economy Module]
-            Loot[Loot Module]
-        end
-        
-        %% Shared Core Packages
-        Database[Database Pkg - pgx]
-        RedisClient[Redis Client - Session/Cache/Locks]
-        WS[WebSocket Manager]
-        StatClient[Stat Client - FFI]
-        EventBus[In-Memory Event Bus]
+    subgraph Kernel["Engine Kernel (game-agnostic)"]
+        Lifecycle[Lifecycle: topo-sorted Init/Start/Stop]
+        Registry[Typed DI Registry]
+        Bus[Typed Event Bus + Fanout]
+        HTTP[HTTP chain: recover / request-id / log / secure / rate-limit / metrics]
     end
 
-    %% External Infrastructure
-    DB[(PostgreSQL Database)]
-    Redis[(Redis Cache & Broker)]
-    RustStat[Rust zzstat Core Library]
+    subgraph Plugins["Domain Plugins"]
+        Core[core: db, cache, hub, router, outbox relay, metrics]
+        Auth[auth]
+        Char[character]
+        Inv[inventory]
+        Loot[loot]
+        Quest[quests]
+        Combat[combat]
+        Items[items]
+    end
 
-    %% Connections
-    Browser <-->|HTTPS / WSS| API
-    
-    %% Go Internal relations
-    API --> Auth
-    API --> Char
-    API --> Inv
-    API --> Equip
-    API --> Combat
-    API --> Skill
-    API --> Quest
-    API --> Guild
-    API --> Econ
-    API --> Loot
-    
-    %% Infrastructure access
-    Internal Modules --> Database
-    Internal Modules --> RedisClient
-    Internal Modules --> WS
-    Internal Modules --> StatClient
-    Internal Modules --> EventBus
-    
-    Database <--> DB
-    RedisClient <--> Redis
-    StatClient <-->|FFI In-Process Calls| RustStat
+    subgraph EnginePkgs["Engine Packages"]
+        Store[store: Store/UnitOfWork over pgx]
+        Outbox[outbox: transactional Append + Relay]
+        Stream[eventstream: Redis Streams fan-out]
+        EventLog[eventlog: append-only replay]
+        StatClient[statclient: FFI to Rust zzstat]
+    end
+
+    DB[(PostgreSQL)]
+    Redis[(Redis)]
+    RustStat[Rust zzstat core]
+
+    Browser <-->|REST / WS| HTTP
+    HTTP --> Plugins
+    Plugins --> Registry
+    Plugins --> Bus
+    Plugins --> Store
+    Combat --> StatClient
+    Core --> Outbox
+    Bus <-->|broadcast| Stream
+    Store <--> DB
+    Outbox <--> DB
+    EventLog <--> DB
+    Stream <--> Redis
+    StatClient <-->|in-process FFI| RustStat
 ```
+
+The Go backend is **not** a monolith of hardwired modules: a kernel wires domains
+declaratively, so a domain can be added, removed, or reordered without editing the
+core, and stat/combat math is offloaded to an embedded Rust core via in-process
+FFI (no network hop).
 
 ---
 
-## 2. Go Backend Module Structure
+## 2. Layers
 
-The Go backend code structure follows clean architecture, domain isolation, and modular monolith principles. Each domain is self-contained with its own repository, service, and transport handlers.
+### 2.1 Engine kernel (`backend/engine/kernel`)
+Owns config, logger, the DI registry, the event bus, the HTTP mux + middleware
+chain, and Prometheus metrics. `Run` topologically sorts plugins by their declared
+`Requires`, calls `Init` then `Start` in order, serves HTTP until cancellation,
+then `Stop`s in reverse. Zero RPG concepts.
 
-```
-backend/
-├── cmd/
-│   └── server/
-│       └── main.go           # Application entry point, dependency injection, and server startup
-├── internal/
-│   ├── auth/                 # User registration, authentication, JWT tokens
-│   ├── character/            # Character creation, basic info, level/experience, offline progression
-│   ├── inventory/            # Player inventories, item storage, moving items
-│   ├── items/                # Item definitions (data-driven), stats modifiers
-│   ├── equipment/            # Currently equipped items, slots validation
-│   ├── combat/               # Dynamic combat loop, calculated via zzstat
-│   ├── skills/               # Skill templates, skill levels, upgrades
-│   ├── quests/               # Data-driven quest steps, progression, rewards
-│   ├── guild/                # Guild creation, ranks, bank, guild stat bonuses
-│   ├── economy/              # Gold/currencies, market transaction logging
-│   ├── loot/                 # Probability-based loot tables, mob drop mechanics
-│   ├── statclient/           # In-process FFI client loading and executing Rust zzstat core
-│   ├── database/             # PostgreSQL connection pool configuration, migration runner
-│   ├── events/               # Event publisher/subscriber for decoupling modules
-│   └── websocket/            # Connection manager, hub, read/write pumps, game notifications
-├── pkg/
-│   ├── config/               # Configuration parsing via environment variables
-│   ├── logger/               # Structured logging (slog/zap)
-│   └── utils/                # General helpers (UUID, hashing, etc.)
-├── go.mod
-├── go.sum
-```
+### 2.2 Plugin contract (`backend/engine/plugin`)
+A plugin declares `Meta{Name, Requires}` and implements `Init/Start/Stop`. `Init`
+receives an `InitContext` (registry, bus, mux, config, logger, context); `Start`
+receives a `RunContext`. Plugins **provide** services into the registry and
+**resolve** the ones they depend on — dependencies are declared, not set by hand.
+This resolves cycles (e.g. character ↔ inventory) via ordering.
 
-### Module Boundaries and Dependency Injection
-1. **Isolation**: Modules must not access another module's database tables directly. They should use public interfaces/services provided by other modules.
-2. **Repository Pattern**: Database operations are abstracted behind interface repositories, making it testable and mockable.
-3. **Domain Event Bus**: To prevent tightly coupled dependencies, modules communicate asynchronously where appropriate using `internal/events` (e.g., when a character levels up, the `Quest` module listens to reward quest progress without direct coupling inside the `Character` module).
+### 2.3 Typed registry, bus & fan-out (`engine/registry`, `engine/bus`, `engine/eventstream`)
+- **Registry** — typed generic `Provide[T]/Resolve[T]`.
+- **Bus** — typed `Event`/`Handler`/`Subscribe`/`Publish`; async, panic-isolated.
+  Wrapped in a **Fanout** decorator: `Publish` delivers locally and, when a
+  forwarder is installed, broadcasts to other nodes; `PublishLocal` re-injects
+  remote events without re-forwarding (no cluster loop).
+- **eventstream** — a Redis-Streams `Publisher` + per-node `Consumer` (broadcast
+  fan-out, origin de-dup). Absent Redis, the app runs single-node unchanged.
+
+### 2.4 Persistence (`engine/store`)
+A `Querier` (Query/QueryRow/Exec — satisfied by both `*pgxpool.Pool` and `pgx.Tx`)
+plus a `Store` with `WithinTx(fn)`. Repositories depend on `store.Store`, so a
+method runs standalone or inside a transaction. Migrations are embedded SQL, run
+automatically at startup, and are idempotent.
+
+### 2.5 Durable events (`engine/outbox`, `engine/eventlog`)
+- **Outbox** — `Append(ctx, Querier, event)` writes an event in the *same
+  transaction* as the state change; a `Relay` polls undispatched rows, decodes
+  them via a shared registry, publishes on the bus (at-least-once), and prunes old
+  dispatched rows.
+- **event_log** — append-only per-stream history; `Replay(stream, since)` powers
+  reconnect catch-up (e.g. `AWAY_EVENTS` on login).
+
+### 2.6 Data-driven content (`backend/content`)
+Embedded JSON packs: class base stats, derived-stat coefficients, mob definitions,
+the combat damage formula (a `zzstat` AST), idle/offline economy, and loot fallback
+tables. The `statclient` feeds these to the Rust core rather than hardcoding math.
 
 ---
 
-## 3. Technology Stack
+## 3. Domains (plugins, `backend/internal`)
 
-- **Primary Language**: Go (1.23+) for fast performance, low memory footprint, concurrency primitives, and simple syntax.
-- **Database**: PostgreSQL (16+) using `pgx` as the driver. Heavy usage of JSONB columns to achieve a schema-less, data-driven game design without losing transactional integrity.
-- **Cache & Message Broker**: Redis (7+) for tracking player online status, session storage, distributed locking (combat/trade locks), and WebSocket event pub/sub.
-- **Stat Service**: Rust-based `zzstat` core engine compiled as a shared library (`libzzstat_ffi.so`) and embedded directly into Go using `purego` FFI bindings, eliminating network overhead.
-- **WebSockets**: Standard or `gorilla/websocket` implementation to push real-time events (combat logs, chat, items gained) to the browser.
+`auth`, `character`, `inventory`, `items`, `loot`, `quests`, `combat`,
+`killreward`, `session`, `socket`, `statclient`, `database`. Each is self-contained
+(repository + service + transport). Cross-domain calls go through **consumer-owned
+minimal interfaces** (a consumer declares just the surface it needs, e.g.
+`combat.CharacterReader`), and reactions go through the event bus, so producers
+don't depend on their consumers.
+
+---
+
+## 4. Technology Stack
+
+- **Go** — kernel, plugins, concurrency, HTTP/WS gateway.
+- **PostgreSQL 16+** (`pgx`) — persistence behind the `store` seam; JSONB for
+  data-driven fields; outbox / event_log / refresh_tokens tables.
+- **Redis 7+** — read-through cache and the cross-node event stream (optional;
+  graceful degradation to single-node).
+- **Rust `zzstat`** — stat/combat formula core compiled to `libzzstat_ffi.so`,
+  embedded via `purego` FFI (no network overhead).
+- **Observability & hardening** — Prometheus `/metrics`, `/readyz`, request-id,
+  per-IP rate limiting, security headers, login brute-force guard, rotating
+  refresh tokens.
+
+See [`ENGINE_TRANSFORMATION_PLAN.md`](ENGINE_TRANSFORMATION_PLAN.md) for the full
+design, rationale, and roadmap (including the planned hook/filter system and
+runtime plugin boundary for third-party extensions).

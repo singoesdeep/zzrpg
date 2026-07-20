@@ -1,6 +1,20 @@
 # API Tasarımı: zzrpg REST, WebSockets ve FFI Arayüzleri (TR)
 
-Bu belge; Frontend İstemcisi, Go Backend Monoliti ve süreç-içi Rust `zzstat` motoru arasındaki arayüz özelliklerini tanımlar.
+Bu belge; Frontend İstemcisi, Go Backend ve süreç-içi Rust `zzstat` motoru arasındaki arayüz özelliklerini tanımlar.
+
+> **Motor güncellemesi.** Motor dönüşümünden bu yana auth yüzeyi kısa-ömürlü bir
+> access token artı rotating bir refresh token döndürür ve yeni operasyonel
+> endpoint'ler mevcuttur. Güncel tam endpoint listesi [README](../README.md)'de;
+> mimari [ARCHITECTURE_TR](ARCHITECTURE_TR.md)'de.
+>
+> - `POST /api/v1/auth/login` → `{ token (access), refresh_token, expires_in }`
+> - `POST /api/v1/auth/refresh` — refresh token'ı yeni bir çifte çevir (tek-kullanımlık).
+> - `POST /api/v1/auth/logout` — refresh token'ı iptal et.
+> - `GET /health` — liveness (DB ping). `GET /readyz` — readiness (DB hard, Redis soft).
+> - `GET /metrics` — Prometheus metrikleri.
+> - WebSocket'e sunucu → istemci `AWAY_EVENTS` paketi eklendi (girişte event-log replay).
+> - Sertleştirme: IP-başı rate limit (429), `X-Request-ID` korelasyonu, güvenlik
+>   başlıkları, istek gövde-boyut limiti, login brute-force lockout (429).
 
 ---
 

@@ -2,6 +2,20 @@
 
 This document defines the interface specifications between the Frontend Client, Go Backend, and the embedded Rust `zzstat` core engine.
 
+> **Engine update.** Since the engine transformation, the auth surface returns a
+> short-lived access token plus a rotating refresh token, and new operational
+> endpoints exist. The full, current endpoint list is in the
+> [README](../README.md); architecture is in [ARCHITECTURE_EN](ARCHITECTURE_EN.md).
+>
+> - `POST /api/v1/auth/login` → `{ token (access), refresh_token, expires_in }`
+> - `POST /api/v1/auth/refresh` — rotate a refresh token into a new pair (single-use).
+> - `POST /api/v1/auth/logout` — revoke a refresh token.
+> - `GET /health` — liveness (DB ping). `GET /readyz` — readiness (DB hard, Redis soft).
+> - `GET /metrics` — Prometheus metrics.
+> - WebSocket adds a server → client `AWAY_EVENTS` packet (event-log replay on login).
+> - Hardening: per-IP rate limiting (429), `X-Request-ID` correlation, security
+>   headers, request body-size limits, login brute-force lockout (429).
+
 ---
 
 ## 1. REST API Endpoints

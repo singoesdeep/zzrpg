@@ -2,6 +2,20 @@
 
 Yeni eşyaların, yeteneklerin, buff'ların, görevlerin, tariflerin ve ganimet kurallarının kod değişikliği gerektirmeden sadece veritabanı düzenlemeleriyle yapılabilmesi için PostgreSQL şeması ve dinamik özellikler için JSONB sütunları bir arada kullanılmıştır.
 
+> **Motor güncellemesi.** Migration'lar gömülü SQL'dir, **başlangıçta otomatik**
+> çalışır (idempotent) ve `schema_migrations`'ta izlenir. Oyun tablolarının
+> ötesinde motor şunları ekler:
+>
+> - `outbox` — transactional outbox; domain olayları state değişikliğiyle aynı
+>   tx'te yazılır, commit sonrası dağıtılır, sonra budanır (`published_at`).
+> - `event_log` — replay için append-only, stream-başına olay geçmişi
+>   (`stream`, `event_type`, `payload`, `occurred_at`).
+> - `refresh_tokens` — rotating, iptal-edilebilir refresh token'lar (yalnızca
+>   SHA-256 hash, `expires_at`, `users`'a FK, `ON DELETE CASCADE`).
+>
+> Repository'ler bunlara ham `*pgxpool.Pool` yerine `store.Store`/`Querier` seam'i
+> üzerinden erişir (bir metot tek başına ya da `WithinTx` içinde çalışır).
+
 ---
 
 ## 1. Şema Diyagramı ve İlişkiler
