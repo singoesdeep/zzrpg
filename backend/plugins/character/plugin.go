@@ -65,7 +65,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 
 	p.hub = registry.MustResolve[*socket.Hub](reg, "hub")
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
-	router.Handle("SELECT_CHARACTER", p.handleSelectCharacter)
+	router.HandleOwned("SELECT_CHARACTER", "character", p.handleSelectCharacter)
 
 	// Character endpoints (protected by JWT).
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(cfg.JWTSecret)(character.CreateHandler(p.charService)))

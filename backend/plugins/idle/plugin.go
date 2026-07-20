@@ -42,11 +42,9 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 
 	idleSvc := idle.NewService(chars, lootSvc, invSvc)
 
+	// Activation gating is handled by the plugin-scoped bus, so this handler
+	// automatically stops firing while the idle plugin is deactivated.
 	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
-		if mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager"); err == nil && !mgr.IsActive("idle") {
-			return
-		}
-
 		e, ok := ev.(character.CharacterLoggedIn)
 		if !ok {
 			return

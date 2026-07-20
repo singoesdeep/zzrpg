@@ -76,7 +76,7 @@ func (Plugin) Init(ic plugin.InitContext) error {
 	rewarder := killreward.New(creatures, charService, questService, lootService, invService, ic.Bus())
 	combatService := combat.NewCombatService(creatures, stat.Client, sessionReg, rewarder, ic.Bus(), ic.Hooks(), skillResolver{skillService})
 
-	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
+	router.HandleOwned("COMBAT_ATTACK", "combat", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {
 			errAck, _ := json.Marshal(map[string]interface{}{
 				"type": "COMBAT_ERROR",

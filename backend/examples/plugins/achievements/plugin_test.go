@@ -55,7 +55,7 @@ func TestAchievementsPlugin(t *testing.T) {
 
 	// The read endpoint returns the unlocked achievements.
 	rec := httptest.NewRecorder()
-	h.Mux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/achievements/7", nil))
+	h.ServeMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/achievements/7", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status: got %d", rec.Code)
 	}

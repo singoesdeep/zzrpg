@@ -42,7 +42,7 @@ func TestXPBoostPluginExtensions(t *testing.T) {
 
 	// Route: the status endpoint is registered.
 	rec := httptest.NewRecorder()
-	h.Mux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/example/xpboost", nil))
+	h.ServeMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/example/xpboost", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 from the plugin route, got %d", rec.Code)
 	}

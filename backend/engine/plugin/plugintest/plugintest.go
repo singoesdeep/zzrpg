@@ -86,4 +86,8 @@ func (h *Harness) Config() *config.Config       { return h.cfg }
 func (h *Harness) Registry() *registry.Registry { return h.reg }
 func (h *Harness) Bus() bus.EventBus            { return h.bus }
 func (h *Harness) Hooks() *hooks.Hooks          { return h.hks }
-func (h *Harness) Mux() *http.ServeMux          { return h.mux }
+func (h *Harness) Mux() plugin.Router            { return h.mux }
+
+// ServeMux exposes the concrete *http.ServeMux so tests can drive registered
+// routes with httptest (Mux() returns the narrower plugin.Router interface).
+func (h *Harness) ServeMux() *http.ServeMux { return h.mux }

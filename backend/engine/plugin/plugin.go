@@ -48,19 +48,30 @@ type Meta struct {
 	Requires []string
 }
 
+// Router is the subset of *http.ServeMux plugins use to register routes. The
+// kernel hands plugins a plugin-scoped Router so that routes belonging to a
+// deactivated plugin can be gated (returning 503) without the plugin having to
+// check its own activation state.
+type Router interface {
+	Handle(pattern string, handler http.Handler)
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
 // InitContext is a plugin's sole channel to the engine during Init.
 type InitContext interface {
 	Context() context.Context
 	Logger() *slog.Logger
 	Config() *config.Config
 	Registry() *registry.Registry
+	// Bus is a plugin-scoped event bus: subscriptions registered through it are
+	// automatically suppressed while the plugin is deactivated.
 	Bus() bus.EventBus
 	// Hooks is the synchronous extension registry: plugins add filters (transform
 	// a value mid-flow) and actions (ordered side effects / gates) here during Init.
 	Hooks() *hooks.Hooks
 	// Mux is the shared HTTP router the kernel serves. Plugins register their
-	// routes on it during Init.
-	Mux() *http.ServeMux
+	// routes on it during Init; the routes are gated on the plugin's activation.
+	Mux() Router
 }
 
 // RunContext is passed to Start. By the time Start runs all services are

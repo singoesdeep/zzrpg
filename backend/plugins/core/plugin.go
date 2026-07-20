@@ -116,6 +116,11 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.hub = socket.NewHub()
 	p.hub.SetEventBus(ic.Bus())
 	p.router = socket.NewMessageRouter()
+	// Gate owned WS message types on their plugin's activation state so the
+	// Admin Dashboard toggle actually suppresses live traffic.
+	if mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager"); err == nil {
+		p.router.SetGate(mgr.IsActive)
+	}
 	p.sessionReg = session.NewRegistry()
 
 	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
@@ -197,7 +202,7 @@ func (p *Plugin) setupEventStream(ic plugin.InitContext, decoders *outbox.Regist
 	}
 }
 
-func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registry, log *slog.Logger) {
+func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry, log *slog.Logger) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -304,7 +309,7 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registr
 	})
 }
 
-func (p *Plugin) registerWebSocket(mux *http.ServeMux, reg *registry.Registry, jwtSecret string) {
+func (p *Plugin) registerWebSocket(mux plugin.Router, reg *registry.Registry, jwtSecret string) {
 	p.router.Handle("CHAT", func(client *socket.Client, msg socket.WSMessage) {
 		var payload socket.ChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {

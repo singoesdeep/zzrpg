@@ -98,8 +98,8 @@ func (k *Kernel) Run(ctx context.Context) error {
 		return err
 	}
 
-	ic := &engineContext{ctx: ctx, k: k}
 	for _, p := range ordered {
+		ic := &engineContext{ctx: ctx, k: k, name: p.Meta().Name, mgr: mgr}
 		if err := p.Init(ic); err != nil {
 			return fmt.Errorf("plugin %q init: %w", p.Meta().Name, err)
 		}
@@ -107,7 +107,8 @@ func (k *Kernel) Run(ctx context.Context) error {
 	}
 
 	for _, p := range ordered {
-		if err := p.Start(ic); err != nil {
+		rc := &engineContext{ctx: ctx, k: k, name: p.Meta().Name, mgr: mgr}
+		if err := p.Start(rc); err != nil {
 			return fmt.Errorf("plugin %q start: %w", p.Meta().Name, err)
 		}
 	}
@@ -171,19 +172,74 @@ func (k *Kernel) stopAll(ordered []plugin.Plugin) {
 }
 
 // engineContext implements both plugin.InitContext and plugin.RunContext by
-// delegating to the kernel.
+// delegating to the kernel. It is scoped to a single plugin (name) so the
+// HTTP router and event bus it hands out gate on that plugin's activation.
 type engineContext struct {
-	ctx context.Context
-	k   *Kernel
+	ctx  context.Context
+	k    *Kernel
+	name string
+	mgr  *admin.StateManager
 }
 
 func (e *engineContext) Context() context.Context     { return e.ctx }
 func (e *engineContext) Logger() *slog.Logger         { return e.k.log }
 func (e *engineContext) Config() *config.Config       { return e.k.cfg }
 func (e *engineContext) Registry() *registry.Registry { return e.k.reg }
-func (e *engineContext) Bus() bus.EventBus            { return e.k.bus }
-func (e *engineContext) Hooks() *hooks.Hooks          { return e.k.hooks }
-func (e *engineContext) Mux() *http.ServeMux          { return e.k.mux }
+func (e *engineContext) Bus() bus.EventBus {
+	return &gatedBus{inner: e.k.bus, name: e.name, mgr: e.mgr}
+}
+func (e *engineContext) Hooks() *hooks.Hooks { return e.k.hooks }
+func (e *engineContext) Mux() plugin.Router {
+	return &gatedRouter{mux: e.k.mux, name: e.name, mgr: e.mgr}
+}
+
+// gatedRouter registers routes on the shared mux but wraps each handler so that
+// requests are rejected with 503 while the owning plugin is deactivated.
+type gatedRouter struct {
+	mux  *http.ServeMux
+	name string
+	mgr  *admin.StateManager
+}
+
+func (g *gatedRouter) Handle(pattern string, h http.Handler) {
+	g.mux.Handle(pattern, g.gate(h))
+}
+
+func (g *gatedRouter) HandleFunc(pattern string, h func(http.ResponseWriter, *http.Request)) {
+	g.mux.Handle(pattern, g.gate(http.HandlerFunc(h)))
+}
+
+func (g *gatedRouter) gate(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !g.mgr.IsActive(g.name) {
+			http.Error(w, "plugin deactivated", http.StatusServiceUnavailable)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+// gatedBus is a plugin-scoped EventBus: Publish passes through unchanged, but
+// subscriptions are suppressed while the owning plugin is deactivated so a
+// disabled plugin stops reacting to events without being unsubscribed.
+type gatedBus struct {
+	inner bus.EventBus
+	name  string
+	mgr   *admin.StateManager
+}
+
+func (g *gatedBus) Publish(ctx context.Context, ev bus.Event) error {
+	return g.inner.Publish(ctx, ev)
+}
+
+func (g *gatedBus) Subscribe(name string, h bus.Handler) bus.Subscription {
+	return g.inner.Subscribe(name, func(ctx context.Context, ev bus.Event) {
+		if !g.mgr.IsActive(g.name) {
+			return
+		}
+		h(ctx, ev)
+	})
+}
 
 // topoSort orders plugins so that every plugin appears after all plugins it
 // Requires. It fails fast on an unknown dependency name or a dependency cycle.
