@@ -1,4 +1,4 @@
-<!-- sha: 08731c838fec0c212a60fc95d82ffb97492192e6 -->
+<!-- sha: 0538c63ff9f3c9cde1c4daf8e4fbb9b0aba7390d -->
 # 🎛️ Web Admin Dashboard & APIs
 
 The `zzrpg` server embeds a single-page Web Admin Dashboard served at `GET /admin` by `corePlugin` ([backend/plugins/core/plugin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/core/plugin.go#L258-L267)).
