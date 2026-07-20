@@ -98,6 +98,18 @@ func (k *Kernel) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Collect plugin-owned schema before Init so the persistence plugin can apply
+	// core + plugin migrations together when it initialises.
+	var migrations []plugin.MigrationSource
+	for _, p := range ordered {
+		if m, ok := p.(plugin.Migrator); ok {
+			migrations = append(migrations, m.Migrations())
+		}
+	}
+	if err := registry.Provide(k.reg, "pluginMigrations", migrations); err != nil {
+		return err
+	}
+
 	for _, p := range ordered {
 		ic := &engineContext{ctx: ctx, k: k, name: p.Meta().Name, mgr: mgr}
 		if err := p.Init(ic); err != nil {

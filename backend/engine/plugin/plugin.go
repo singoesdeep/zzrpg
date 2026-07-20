@@ -8,6 +8,7 @@ package plugin
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -81,6 +82,25 @@ type RunContext interface {
 	Logger() *slog.Logger
 	Registry() *registry.Registry
 	Bus() bus.EventBus
+}
+
+// MigrationSource is a plugin's owned database schema: a filesystem of
+// "NNNNNN_name.up.sql" files under Dir, namespaced by Module so a plugin's
+// versions never collide with core or other plugins. It is a neutral type (no
+// persistence-layer import) so the engine can carry it without a dependency
+// cycle; the persistence plugin applies it.
+type MigrationSource struct {
+	Module string
+	FS     fs.FS
+	Dir    string
+}
+
+// Migrator is the optional interface a plugin implements to ship its own schema.
+// The kernel collects every plugin's MigrationSource before Init and publishes
+// them under the "pluginMigrations" service, so the persistence plugin can apply
+// them alongside the core schema — no plugin needs to touch platform/database.
+type Migrator interface {
+	Migrations() MigrationSource
 }
 
 // Base provides no-op Start/Stop so plugins that only need Init can embed it

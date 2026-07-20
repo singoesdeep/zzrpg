@@ -2,7 +2,9 @@ package idle
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"sync"
 	"time"
 
@@ -18,6 +20,16 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
 )
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+// Migrations ships the idle domain's own schema, applied by the persistence
+// plugin under the "idle" module — this plugin owns its tables without touching
+// platform/database.
+func (*Plugin) Migrations() plugin.MigrationSource {
+	return plugin.MigrationSource{Module: "idle", FS: fs.FS(migrationsFS), Dir: "migrations"}
+}
 
 type Plugin struct {
 	plugin.Base

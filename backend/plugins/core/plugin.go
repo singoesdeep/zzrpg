@@ -93,7 +93,14 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		return fmt.Errorf("database connection pool: %w", err)
 	}
 	p.db = db
-	if err := db.RunMigrations(ctx); err != nil {
+	// Apply core schema plus any plugin-owned schema the kernel collected.
+	var pluginSets []database.MigrationSet
+	if srcs, err := registry.Resolve[[]plugin.MigrationSource](reg, "pluginMigrations"); err == nil {
+		for _, s := range srcs {
+			pluginSets = append(pluginSets, database.MigrationSet{Module: s.Module, FS: s.FS, Dir: s.Dir})
+		}
+	}
+	if err := db.RunMigrations(ctx, pluginSets...); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
