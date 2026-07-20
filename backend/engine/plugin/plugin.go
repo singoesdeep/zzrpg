@@ -116,9 +116,9 @@ func NewStateManager(catalog []PluginInfo) *StateManager {
 	sm := &StateManager{
 		states: make(map[string]*PluginInfo, len(catalog)),
 	}
-	for i := range catalog {
-		p := catalog[i]
-		sm.states[p.Name] = &p
+	for _, item := range catalog {
+		cp := item
+		sm.states[cp.Name] = &cp
 	}
 	return sm
 }
