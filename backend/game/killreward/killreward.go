@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/internal/creature"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
+	"github.com/singoesdeep/zzrpg/backend/game/creature"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
 // CreatureResolver resolves a creature ID to a Creature model containing stats

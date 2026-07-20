@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
 // CharacterRewarder credits gold/exp to a character (consumer-owned minimal

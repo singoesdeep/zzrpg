@@ -7,7 +7,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
+	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
 )
 
 // classDefs is the class starting-stat pack, loaded once from embedded content.

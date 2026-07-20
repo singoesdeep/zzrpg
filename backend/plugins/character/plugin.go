@@ -12,13 +12,13 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/database"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
-	"github.com/singoesdeep/zzrpg/backend/internal/session"
-	"github.com/singoesdeep/zzrpg/backend/internal/socket"
-	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/platform/database"
+	"github.com/singoesdeep/zzrpg/backend/platform/session"
+	"github.com/singoesdeep/zzrpg/backend/platform/socket"
+	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
 )
 
 type Plugin struct {

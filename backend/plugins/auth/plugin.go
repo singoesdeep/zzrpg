@@ -7,8 +7,8 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
-	"github.com/singoesdeep/zzrpg/backend/internal/database"
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
+	"github.com/singoesdeep/zzrpg/backend/platform/database"
 )
 
 // AdminOnly composes JWT auth with an admin-role check for mutating

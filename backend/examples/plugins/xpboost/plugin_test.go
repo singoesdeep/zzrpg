@@ -8,8 +8,8 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin/plugintest"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/combat"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/combat"
 )
 
 // TestXPBoostPluginExtensions drives the plugin's Init through the plugintest

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/idle"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
+	"github.com/singoesdeep/zzrpg/backend/game/idle"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
 type mockCharRewarder struct {

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
 )
 
 // keyedMutex serializes operations per key (here, per character). Inventory

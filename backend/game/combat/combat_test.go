@@ -8,12 +8,12 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/creature"
-	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
-	"github.com/singoesdeep/zzrpg/backend/internal/quests"
-	"github.com/singoesdeep/zzrpg/backend/internal/session"
-	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/creature"
+	"github.com/singoesdeep/zzrpg/backend/game/killreward"
+	"github.com/singoesdeep/zzrpg/backend/game/quests"
+	"github.com/singoesdeep/zzrpg/backend/platform/session"
+	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
 )
 
 type mockCharService struct {

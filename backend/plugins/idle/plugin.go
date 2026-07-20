@@ -8,11 +8,11 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/idle"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	"github.com/singoesdeep/zzrpg/backend/internal/socket"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/idle"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
+	"github.com/singoesdeep/zzrpg/backend/platform/socket"
 )
 
 type Plugin struct{ plugin.Base }

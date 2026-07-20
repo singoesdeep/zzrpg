@@ -4,10 +4,10 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/database"
-	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	authplugin "github.com/singoesdeep/zzrpg/backend/plugins/auth"
 )
 

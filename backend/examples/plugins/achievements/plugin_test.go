@@ -10,8 +10,8 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin/plugintest"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/combat"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/combat"
 )
 
 // waitUnlocked polls until charID has unlocked id, or times out (event handlers

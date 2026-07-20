@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/creature"
-	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
+	"github.com/singoesdeep/zzrpg/backend/game/creature"
+	"github.com/singoesdeep/zzrpg/backend/game/killreward"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
 type mockCreatures struct {

@@ -6,8 +6,8 @@ import (
 	"strconv"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/creature"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/creature"
 )
 
 type mobCreatureResolver struct{ mobs *content.Mobs }

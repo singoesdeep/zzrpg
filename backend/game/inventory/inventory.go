@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/game/items"
 )
 
 var (

@@ -6,10 +6,10 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/internal/creature"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	"github.com/singoesdeep/zzrpg/backend/internal/session"
-	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
+	"github.com/singoesdeep/zzrpg/backend/game/creature"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
+	"github.com/singoesdeep/zzrpg/backend/platform/session"
+	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
 )
 
 // KillRewarder handles the side effects of a kill — quest progress, loot roll,

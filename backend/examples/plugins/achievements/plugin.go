@@ -22,9 +22,9 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
-	"github.com/singoesdeep/zzrpg/backend/internal/combat"
-	"github.com/singoesdeep/zzrpg/backend/internal/quests"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
+	"github.com/singoesdeep/zzrpg/backend/game/combat"
+	"github.com/singoesdeep/zzrpg/backend/game/quests"
 )
 
 // Achievement is a single unlockable, tracked by a counter of Kind reaching

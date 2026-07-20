@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
-	"github.com/singoesdeep/zzrpg/backend/internal/loot"
+	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
 // Domain event names published on the engine bus for character progression and

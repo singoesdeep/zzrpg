@@ -10,7 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
 )
 
 func TestWebSocketHubAndClient(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
-	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
+	"github.com/singoesdeep/zzrpg/backend/game/items"
 	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 )
 

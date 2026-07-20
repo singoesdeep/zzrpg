@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
-	"github.com/singoesdeep/zzrpg/backend/internal/items"
+	"github.com/singoesdeep/zzrpg/backend/game/items"
 )
 
 type pgInventoryRepository struct {

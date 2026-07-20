@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/game/character"
 )
 
 // TestConcurrentAddItemNoSlotCollision proves that concurrent AddItem calls for
