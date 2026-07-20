@@ -5,7 +5,27 @@ import (
 	"testing"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
+	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
+
+// mockStat stands in for the zzstat client in unit tests, computing derived stats
+// from base stats (the production path always uses the real Rust resolver).
+type mockStat struct{}
+
+func (mockStat) Calculate(_ context.Context, state statclient.CharacterState) (map[string]float64, error) {
+	b := state.BaseStats
+	return map[string]float64{
+		"HP":        b["CON"] * 15,
+		"MP":        b["INT"] * 10,
+		"ATTACK":    b["STR"] * 2,
+		"DEFENSE":   b["CON"] * 1,
+		"CRIT_RATE": 5,
+	}, nil
+}
+func (mockStat) CalculateDamage(_ context.Context, _ statclient.CalculateDamageReq) (statclient.DamageResult, error) {
+	return statclient.DamageResult{}, nil
+}
+func (mockStat) Close() error { return nil }
 
 type mockCharacterRepository struct {
 	characters map[int64]*CharacterWithStats
@@ -19,7 +39,7 @@ func newMockCharacterRepository() *mockCharacterRepository {
 	}
 }
 
-func (m *mockCharacterRepository) Create(ctx context.Context, char *Character, baseStats map[string]float64) error {
+func (m *mockCharacterRepository) Create(ctx context.Context, char *Character, baseStats, derivedStats map[string]float64) error {
 	if _, ok := m.names[char.Name]; ok {
 		return ErrCharacterNameTaken
 	}
@@ -39,14 +59,9 @@ func (m *mockCharacterRepository) Create(ctx context.Context, char *Character, b
 	cws := &CharacterWithStats{
 		Character: *char,
 		Stats: CharacterStats{
-			CharacterID: char.ID,
-			BaseStats:   baseStats,
-			DerivedStats: map[string]float64{
-				"HP":      baseStats["CON"] * 15,
-				"MP":      baseStats["INT"] * 10,
-				"ATTACK":  baseStats["STR"] * 2,
-				"DEFENSE": baseStats["CON"] * 1,
-			},
+			CharacterID:  char.ID,
+			BaseStats:    baseStats,
+			DerivedStats: derivedStats,
 		},
 	}
 	m.characters[char.ID] = cws
@@ -105,7 +120,7 @@ func (m *mockCharacterRepository) AddRewards(ctx context.Context, charID int64, 
 
 func TestCreateCharacter(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo, nil, nil, nil, nil)
+	service := NewCharacterService(repo, mockStat{}, nil, nil, nil)
 
 	// 1. Success case: Warrior
 	char, err := service.Create(context.Background(), 100, "WarriorGod", "WARRIOR")
@@ -154,7 +169,7 @@ func TestCreateCharacter(t *testing.T) {
 
 func TestCharacterLimit(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo, nil, nil, nil, nil)
+	service := NewCharacterService(repo, mockStat{}, nil, nil, nil)
 
 	// Create 4 characters successfully
 	for i := 1; i <= 4; i++ {
@@ -187,7 +202,7 @@ func TestRewardsHookFilter(t *testing.T) {
 		r.Gold *= 2 // a "double gold weekend" plugin
 		return r
 	})
-	service := NewCharacterService(repo, nil, nil, nil, hks)
+	service := NewCharacterService(repo, mockStat{}, nil, nil, hks)
 
 	char, err := service.Create(context.Background(), 1, "RewardHero", "WARRIOR")
 	if err != nil {
@@ -216,7 +231,7 @@ func TestStatsRecalcHookFilter(t *testing.T) {
 		f.DerivedStats["AURA"] = 999 // a global buff plugin
 		return f
 	})
-	service := NewCharacterService(repo, nil, nil, nil, hks)
+	service := NewCharacterService(repo, mockStat{}, nil, nil, hks)
 
 	char, err := service.Create(context.Background(), 1, "AuraHero", "WARRIOR")
 	if err != nil {

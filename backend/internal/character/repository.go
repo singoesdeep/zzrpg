@@ -21,7 +21,7 @@ func NewCharacterRepository(db store.Store) CharacterRepository {
 	return &pgCharacterRepository{db: db}
 }
 
-func (r *pgCharacterRepository) Create(ctx context.Context, char *Character, baseStats map[string]float64) error {
+func (r *pgCharacterRepository) Create(ctx context.Context, char *Character, baseStats, derivedStats map[string]float64) error {
 	return r.db.WithinTx(ctx, func(q store.Querier) error {
 		// Check character limit (max 4 per user)
 		var count int
@@ -49,14 +49,12 @@ func (r *pgCharacterRepository) Create(ctx context.Context, char *Character, bas
 			return err
 		}
 
-		// 2. Insert initial base stats and empty derived stats
+		// 2. Insert base stats and the derived stats the caller computed (via
+		// zzstat — persistence does no stat math).
 		baseJSON, err := json.Marshal(baseStats)
 		if err != nil {
 			return err
 		}
-
-		// Initial derived stats via the shared fallback formula (see stats.go).
-		derivedStats := FallbackDerivedStats(baseStats)
 		derivedJSON, err := json.Marshal(derivedStats)
 		if err != nil {
 			return err

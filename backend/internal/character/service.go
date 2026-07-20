@@ -77,14 +77,26 @@ func (s *characterService) Create(ctx context.Context, userID int64, name, class
 		baseStats[k] = v
 	}
 
+	// Compute the initial derived stats through zzstat (the single source of
+	// truth for stat math) — never in Go.
+	if s.statClient == nil {
+		return nil, ErrStatUnavailable
+	}
+	derivedStats, err := s.statClient.Calculate(ctx, statclient.CharacterState{
+		CharacterID: 0,
+		BaseStats:   baseStats,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	char := &Character{
 		UserID:    userID,
 		Name:      name,
 		ClassName: className,
 	}
 
-	err := s.repo.Create(ctx, char, baseStats)
-	if err != nil {
+	if err := s.repo.Create(ctx, char, baseStats, derivedStats); err != nil {
 		return nil, err
 	}
 
@@ -124,17 +136,14 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 		Equipment:   eqModifiers,
 	}
 
-	// 4. Call embedded client (or fallback if statClient is nil)
-	var finalStats map[string]float64
-	if s.statClient != nil {
-		finalStats, err = s.statClient.Calculate(ctx, state)
-		if err != nil {
-			return err
-		}
-	} else {
-		// Fallback when the resolver is unavailable (tests / local). Same formula
-		// as character creation — see FallbackDerivedStats in stats.go.
-		finalStats = FallbackDerivedStats(charWithStats.Stats.BaseStats)
+	// 4. Compute derived stats through zzstat — the single source of truth for
+	// stat math. There is no Go fallback: if zzstat is unavailable, fail.
+	if s.statClient == nil {
+		return ErrStatUnavailable
+	}
+	finalStats, err := s.statClient.Calculate(ctx, state)
+	if err != nil {
+		return err
 	}
 
 	// 4b. Let plugins adjust the derived stats before they are cached — auras,

@@ -15,6 +15,7 @@ var (
 	ErrInvalidClass          = errors.New("invalid character class")
 	ErrNameTooShort          = errors.New("character name too short (minimum 3 characters)")
 	ErrNameTooLong           = errors.New("character name too long (maximum 16 characters)")
+	ErrStatUnavailable       = errors.New("stat calculation unavailable: zzstat is not loaded")
 )
 
 type Character struct {
@@ -43,7 +44,7 @@ type CharacterWithStats struct {
 }
 
 type CharacterRepository interface {
-	Create(ctx context.Context, char *Character, baseStats map[string]float64) error
+	Create(ctx context.Context, char *Character, baseStats, derivedStats map[string]float64) error
 	GetByID(ctx context.Context, id int64) (*CharacterWithStats, error)
 	GetByName(ctx context.Context, name string) (*Character, error)
 	ListByUserID(ctx context.Context, userID int64) ([]Character, error)

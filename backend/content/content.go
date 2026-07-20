@@ -57,9 +57,8 @@ type StatTerm struct {
 }
 
 // DerivedStats describes how derived stats (HP, ATTACK, ...) are computed from
-// base stats. Primary terms drive both the zzstat resolver and the Go fallback;
-// Secondary terms drive only the zzstat resolver (the fallback intentionally
-// uses primary terms only — see character.FallbackDerivedStats).
+// base stats. Both Primary and Secondary terms drive the zzstat resolver, which
+// is the single source of truth for all stat math (there is no Go fallback).
 type DerivedStats struct {
 	Primary   map[string][]StatTerm `json:"primary"`
 	Secondary map[string][]StatTerm `json:"secondary"`

@@ -207,17 +207,11 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		SkillFlatDamage: skillFlat,
 	}
 
+	// Damage is computed only by zzstat — no Go fallback. If the resolver fails,
+	// the attack fails rather than silently using different math.
 	res, err := s.statClient.CalculateDamage(ctx, calcReq)
 	if err != nil {
-		// Fallback physical formula if embedded client failed
-		res = statclient.DamageResult{
-			IsHit:  true,
-			Damage: int32(attacker.Attack - defender.Defense),
-			IsCrit: false,
-		}
-		if res.Damage < 1 {
-			res.Damage = 1
-		}
+		return nil, err
 	}
 
 	// 3b. Let plugins filter the final damage before it lands (shields, difficulty

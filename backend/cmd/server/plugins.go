@@ -125,12 +125,13 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 
+	// zzstat is the single source of truth for all stat/combat math — there is no
+	// Go fallback — so it is a hard dependency: refuse to start without it.
 	statClient, err := statclient.NewClient(cfg.ZzstatGRPCURL)
 	if err != nil {
-		log.Warn("Failed to load embedded Rust zzstat library. Stat calculations will use fallback.", "error", err)
-	} else {
-		log.Info("Successfully initialized embedded statclient loading Rust zzstat shared library")
+		return fmt.Errorf("load embedded Rust zzstat library (required for stat/combat math): %w", err)
 	}
+	log.Info("Successfully initialized embedded statclient loading Rust zzstat shared library")
 	p.stat = &statHolder{client: statClient}
 
 	// Cache (Redis) with graceful degradation: if Redis is unreachable the app

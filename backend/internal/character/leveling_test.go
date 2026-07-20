@@ -51,14 +51,3 @@ func TestApplyLevelUpStatGains(t *testing.T) {
 		t.Errorf("expected no change for 0 levels, got %v", before["STR"])
 	}
 }
-
-func TestFallbackDerivedStats(t *testing.T) {
-	base := map[string]float64{"STR": 15, "INT": 5, "DEX": 10, "CON": 15}
-	got := FallbackDerivedStats(base)
-	want := map[string]float64{"HP": 225, "MP": 50, "ATTACK": 30, "DEFENSE": 15, "CRIT_RATE": 5}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s = %v, want %v", k, got[k], v)
-		}
-	}
-}
