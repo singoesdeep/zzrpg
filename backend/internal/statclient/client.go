@@ -59,6 +59,11 @@ type Client interface {
 	Close() error
 }
 
+// StatHolder wraps Client for registry storage so nil interface resolution is non-ambiguous.
+type StatHolder struct {
+	Client Client
+}
+
 type embeddedStatClient struct {
 	// rng is a *math/rand.Rand (not concurrent-safe). CalculateDamage runs
 	// concurrently across combat goroutines, so rng access is serialized by rngMu.

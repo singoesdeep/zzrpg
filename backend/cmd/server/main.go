@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	stdlog "log"
 	"os"
 	"os/signal"
@@ -11,16 +10,21 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/kernel"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
-)
 
-//go:embed api/*
-var apiFS embed.FS
+	"github.com/singoesdeep/zzrpg/backend/plugins/auth"
+	"github.com/singoesdeep/zzrpg/backend/plugins/character"
+	"github.com/singoesdeep/zzrpg/backend/plugins/combat"
+	"github.com/singoesdeep/zzrpg/backend/plugins/core"
+	"github.com/singoesdeep/zzrpg/backend/plugins/idle"
+	"github.com/singoesdeep/zzrpg/backend/plugins/inventory"
+	"github.com/singoesdeep/zzrpg/backend/plugins/items"
+	"github.com/singoesdeep/zzrpg/backend/plugins/loot"
+	"github.com/singoesdeep/zzrpg/backend/plugins/quests"
+)
 
 func main() {
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		// The structured logger depends on cfg.Env, which isn't available yet,
-		// so use the standard logger for this one fatal startup error.
 		stdlog.Fatalf("failed to load configuration: %v", err)
 	}
 
@@ -30,18 +34,17 @@ func main() {
 	k := kernel.New(cfg, log)
 
 	k.Register(
-		&corePlugin{},
-		authPlugin{},
-		itemsPlugin{},
-		&characterPlugin{},
-		inventoryPlugin{},
-		lootPlugin{},
-		questsPlugin{},
-		combatPlugin{},
-		&idlePlugin{},
+		core.NewPlugin(),
+		&auth.Plugin{},
+		&items.Plugin{},
+		&character.Plugin{},
+		&inventory.Plugin{},
+		&loot.Plugin{},
+		&quests.Plugin{},
+		&combat.Plugin{},
+		&idle.Plugin{},
 	)
 
-	// Cancel the run context on SIGINT/SIGTERM for graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 

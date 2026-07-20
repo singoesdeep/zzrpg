@@ -1,4 +1,4 @@
-package main
+package combat
 
 import (
 	"context"
@@ -10,8 +10,6 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/creature"
 )
 
-// mobCreatureResolver resolves defined mobs (from the mob content pack) to
-// creatures.
 type mobCreatureResolver struct{ mobs *content.Mobs }
 
 func (r mobCreatureResolver) Resolve(_ context.Context, id int64) (creature.Creature, bool, error) {
@@ -32,8 +30,6 @@ func (r mobCreatureResolver) Resolve(_ context.Context, id int64) (creature.Crea
 	}, true, nil
 }
 
-// charCreatureResolver resolves player characters to creatures. When a character
-// is a combat target its reward metadata is the PvP default from the mob pack.
 type charCreatureResolver struct {
 	chars character.CharacterService
 	pvp   content.PvPDef
@@ -63,9 +59,6 @@ func (r charCreatureResolver) Resolve(ctx context.Context, id int64) (creature.C
 	}, true, nil
 }
 
-// compositeCreatureResolver tries each resolver in order, returning the first
-// match (or error). Mobs are tried before characters, matching the pre-creature
-// combat behaviour and avoiding a DB hit for mob IDs.
 type compositeCreatureResolver []creature.Resolver
 
 func (rs compositeCreatureResolver) Resolve(ctx context.Context, id int64) (creature.Creature, bool, error) {
