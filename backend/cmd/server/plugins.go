@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -165,42 +166,8 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 
-	// Domain metric: the outbox backlog (rows written but not yet dispatched),
-	// sampled at scrape time. Growth signals the relay is falling behind.
-	if m, err := registry.Resolve[*metrics.Metrics](reg, "metrics"); err == nil {
-		m.Registerer().MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "outbox_undispatched",
-			Help: "Number of outbox rows written but not yet dispatched by the relay.",
-		}, func() float64 {
-			qctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			var n float64
-			_ = p.db.Pool.QueryRow(qctx, `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&n)
-			return n
-		}))
-	}
-
-	// Optional cross-node event fan-out over Redis Streams. When Redis is
-	// reachable, EVERY event published on the (fanout) bus is broadcast to the
-	// stream and a consumer re-injects other nodes' events locally; without it
-	// the app runs single-node exactly as before (graceful degradation).
-	nodeID := nodeID()
-	if streamClient, err := eventstream.Dial(ctx, cfg.RedisURL); err != nil {
-		log.Warn("Cross-node event streaming disabled; running single-node", "error", err)
-	} else if fb, ok := ic.Bus().(*bus.Fanout); ok {
-		pub := eventstream.NewPublisher(streamClient, "", nodeID)
-		fb.SetForwarder(func(fctx context.Context, ev bus.Event) {
-			if err := pub.Publish(fctx, ev); err != nil {
-				log.Error("event fan-out publish failed", "event", ev.Name(), "error", err)
-			}
-		})
-		p.eventConsumer = eventstream.NewConsumer(streamClient, fb.PublishLocal, decoders, "", nodeID, log)
-		p.closeStream = streamClient.Close
-		log.Info("Cross-node event streaming enabled", "node", nodeID)
-	} else {
-		_ = streamClient.Close()
-		log.Warn("Kernel bus is not a Fanout; cross-node streaming disabled")
-	}
+	p.registerOutboxMetrics(reg)
+	p.setupEventStream(ic, decoders)
 
 	if err := registry.Provide(reg, "db", p.db); err != nil {
 		return err
@@ -221,6 +188,51 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 
+	p.registerHTTPEndpoints(mux, log)
+	p.registerWebSocket(mux, reg, cfg.JWTSecret)
+
+	return nil
+}
+
+func (p *corePlugin) registerOutboxMetrics(reg *registry.Registry) {
+	if m, err := registry.Resolve[*metrics.Metrics](reg, "metrics"); err == nil {
+		m.Registerer().MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "outbox_undispatched",
+			Help: "Number of outbox rows written but not yet dispatched by the relay.",
+		}, func() float64 {
+			qctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var n float64
+			_ = p.db.Pool.QueryRow(qctx, `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&n)
+			return n
+		}))
+	}
+}
+
+func (p *corePlugin) setupEventStream(ic plugin.InitContext, decoders *outbox.Registry) {
+	cfg := ic.Config()
+	log := ic.Logger()
+	ctx := ic.Context()
+	nid := nodeID()
+	if streamClient, err := eventstream.Dial(ctx, cfg.RedisURL); err != nil {
+		log.Warn("Cross-node event streaming disabled; running single-node", "error", err)
+	} else if fb, ok := ic.Bus().(*bus.Fanout); ok {
+		pub := eventstream.NewPublisher(streamClient, "", nid)
+		fb.SetForwarder(func(fctx context.Context, ev bus.Event) {
+			if err := pub.Publish(fctx, ev); err != nil {
+				log.Error("event fan-out publish failed", "event", ev.Name(), "error", err)
+			}
+		})
+		p.eventConsumer = eventstream.NewConsumer(streamClient, fb.PublishLocal, decoders, "", nid, log)
+		p.closeStream = streamClient.Close
+		log.Info("Cross-node event streaming enabled", "node", nid)
+	} else {
+		_ = streamClient.Close()
+		log.Warn("Kernel bus is not a Fanout; cross-node streaming disabled")
+	}
+}
+
+func (p *corePlugin) registerHTTPEndpoints(mux *http.ServeMux, log *slog.Logger) {
 	// Health check.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -238,9 +250,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		_, _ = w.Write([]byte(`{"status":"UP", "database":"OK"}`))
 	})
 
-	// Readiness probe: the database is a hard dependency (503 if down); Redis is
-	// soft (the app degrades gracefully), so it is reported but never fails
-	// readiness.
+	// Readiness probe.
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
@@ -283,8 +293,9 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		}
 		_, _ = w.Write(data)
 	})
+}
 
-	// Chat is transport-level and owned by core.
+func (p *corePlugin) registerWebSocket(mux *http.ServeMux, reg *registry.Registry, jwtSecret string) {
 	p.router.Handle("CHAT", func(client *socket.Client, msg socket.WSMessage) {
 		var payload socket.ChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -300,8 +311,6 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		p.hub.Broadcast <- broadMsg
 	})
 
-	// WebSocket endpoint. The disconnect handler lazily resolves the character
-	// service (present after all plugins have initialised).
 	disconnect := func(client *socket.Client) {
 		if client.CharacterID > 0 {
 			if cs, err := registry.Resolve[character.CharacterService](reg, "character"); err == nil {
@@ -310,9 +319,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 			p.sessionReg.EndSession(client.CharacterID)
 		}
 	}
-	mux.HandleFunc("/ws", socket.ServeWS(p.hub, cfg.JWTSecret, p.router.Dispatch, disconnect))
-
-	return nil
+	mux.HandleFunc("/ws", socket.ServeWS(p.hub, jwtSecret, p.router.Dispatch, disconnect))
 }
 
 func (p *corePlugin) Start(rc plugin.RunContext) error {
