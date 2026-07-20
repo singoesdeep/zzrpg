@@ -70,6 +70,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Skip("PostgreSQL running but ping failed, skipping integration test.")
 	}
+	migrateTestDB(t, pool)
 
 	// 2. Initialize all modules in-memory
 	db := &database.DB{Pool: pool, Store: store.New(pool)}
@@ -339,6 +340,7 @@ func TestDoubleSessionOverride(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Skip("PostgreSQL running but ping failed, skipping double session test.")
 	}
+	migrateTestDB(t, pool)
 
 	db := &database.DB{Pool: pool, Store: store.New(pool)}
 	jwtSecret := "double-session-secret"
@@ -486,6 +488,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Skip("PostgreSQL running but ping failed, skipping dead status test.")
 	}
+	migrateTestDB(t, pool)
 
 	db := &database.DB{Pool: pool, Store: store.New(pool)}
 	jwtSecret := "dead-status-secret"
@@ -750,14 +753,7 @@ func TestOutboxDispatchesRewardEvents(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Skip("PostgreSQL running but ping failed, skipping outbox integration test.")
 	}
-
-	// Ensure the outbox table exists (idempotent) so the test is self-sufficient.
-	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS outbox (
-		id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, payload JSONB NOT NULL,
-		occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), published_at TIMESTAMPTZ)`)
-	if err != nil {
-		t.Fatalf("ensure outbox table: %v", err)
-	}
+	migrateTestDB(t, pool)
 
 	st := store.New(pool)
 
@@ -847,17 +843,7 @@ func TestEventLogReplay(t *testing.T) {
 	if err := pool.Ping(ctx); err != nil {
 		t.Skip("PostgreSQL running but ping failed, skipping event_log replay test.")
 	}
-
-	// Self-sufficient schema for the tables this test touches.
-	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS event_log (
-		id BIGSERIAL PRIMARY KEY, stream TEXT NOT NULL, event_type TEXT NOT NULL,
-		payload JSONB NOT NULL, occurred_at TIMESTAMPTZ NOT NULL DEFAULT now())`)
-	if err != nil {
-		t.Fatalf("ensure event_log: %v", err)
-	}
-	_, _ = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS outbox (
-		id BIGSERIAL PRIMARY KEY, event_type TEXT NOT NULL, payload JSONB NOT NULL,
-		occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(), published_at TIMESTAMPTZ)`)
+	migrateTestDB(t, pool)
 
 	st := store.New(pool)
 	authRepo := auth.NewUserRepository(st)
@@ -907,5 +893,16 @@ func TestEventLogReplay(t *testing.T) {
 	}
 	if len(later) != 0 {
 		t.Errorf("replay since `after` should be empty, got %d events", len(later))
+	}
+}
+
+// migrateTestDB brings the connected database up to the latest schema so
+// integration tests are self-sufficient on a fresh database (no manual table
+// creation). RunMigrations is idempotent, so it is a no-op on an already-migrated
+// database.
+func migrateTestDB(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	if err := (&database.DB{Pool: pool}).RunMigrations(context.Background()); err != nil {
+		t.Fatalf("run migrations: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -14,7 +15,13 @@ import (
 var migrationsFS embed.FS
 
 func (db *DB) RunMigrations(ctx context.Context) error {
-	db.log.Info("Running database migrations...")
+	// Nil-safe logger so callers that construct a bare DB (e.g. tests) can run
+	// migrations without wiring a logger.
+	log := db.log
+	if log == nil {
+		log = slog.Default()
+	}
+	log.Info("Running database migrations...")
 
 	// 1. Create migrations table if not exists
 	_, err := db.Pool.Exec(ctx, `
@@ -61,11 +68,11 @@ func (db *DB) RunMigrations(ctx context.Context) error {
 		}
 
 		if exists {
-			db.log.Debug("Migration already applied", "version", version, "file", file)
+			log.Debug("Migration already applied", "version", version, "file", file)
 			continue
 		}
 
-		db.log.Info("Applying migration", "version", version, "file", file)
+		log.Info("Applying migration", "version", version, "file", file)
 
 		content, err := migrationsFS.ReadFile(filepath.Join("migrations", file))
 		if err != nil {
@@ -91,9 +98,9 @@ func (db *DB) RunMigrations(ctx context.Context) error {
 			return fmt.Errorf("failed to commit migration transaction: %w", err)
 		}
 
-		db.log.Info("Successfully applied migration", "version", version)
+		log.Info("Successfully applied migration", "version", version)
 	}
 
-	db.log.Info("All database migrations completed successfully")
+	log.Info("All database migrations completed successfully")
 	return nil
 }
