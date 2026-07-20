@@ -244,6 +244,17 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, log *slog.Logger) {
 		}
 		_, _ = w.Write(data)
 	})
+
+	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		data, err := apiFS.ReadFile("api/admin.html")
+		if err != nil {
+			log.Error("Failed to read admin.html", "error", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write(data)
+	})
 }
 
 func (p *Plugin) registerWebSocket(mux *http.ServeMux, reg *registry.Registry, jwtSecret string) {

@@ -115,7 +115,9 @@ backend/
 - `POST|GET /api/v1/admin/loot`
 - `POST|PUT|GET|DELETE /api/v1/admin/items[ /{id} ]`
 
-### Operational
+### Operational & UI
+- `GET /admin` — Admin Dashboard UI (system health, items/loot/quests management, WS console).
+- `GET /docs` — Interactive OpenAPI / Scalar API Reference.
 - `GET /health` — liveness (DB ping).
 - `GET /readyz` — readiness (DB hard dependency; Redis reported, soft).
 - `GET /metrics` — Prometheus metrics (HTTP rate/latency, Go runtime, outbox backlog).
