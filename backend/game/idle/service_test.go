@@ -49,122 +49,146 @@ func (m *mockInventoryWriter) AddItem(ctx context.Context, item *inventory.Inven
 	return nil
 }
 
-// stageReq builds an offline request assigned to the training_yard stage, with
-// a power/level that unlocks it, for the given away-duration.
-func stageReq(charID int64, away time.Duration) idle.OfflineRequest {
-	return idle.OfflineRequest{
-		CharacterID:  charID,
-		LastActiveAt: time.Now().Add(-away),
-		Assignment:   idle.StageAssignment("training_yard"),
-		State:        idle.BuildState(100, 5, 0, 0),
+type repos struct {
+	assign idle.AssignmentRepo
+	ls     idle.LifeskillRepo
+	build  idle.BuildingRepo
+	wallet idle.WalletRepo
+}
+
+func newService(chars idle.CharacterRewarder, lootSvc idle.LootRoller, inv idle.InventoryWriter) (*idle.Service, repos) {
+	r := repos{
+		assign: idle.NewMemAssignmentRepo(),
+		ls:     idle.NewMemLifeskillRepo(),
+		build:  idle.NewMemBuildingRepo(),
+		wallet: idle.NewMemWalletRepo(),
+	}
+	svc := idle.NewService(idle.Deps{
+		Chars: chars, Loot: lootSvc, Inv: inv,
+		Assignments: r.assign, Lifeskills: r.ls, Buildings: r.build, Wallet: r.wallet,
+	})
+	return svc, r
+}
+
+func stageReq(charID int64, away time.Duration) idle.AccrualRequest {
+	return idle.AccrualRequest{
+		CharacterID: charID,
+		Since:       time.Now().Add(-away),
+		Power:       100,
+		Level:       5,
 	}
 }
 
-func TestGrantOffline_TooShort(t *testing.T) {
+func TestAccrue_TooShort(t *testing.T) {
 	chars := &mockCharRewarder{}
-	svc := idle.NewService(chars, &mockLootRoller{}, &mockInventoryWriter{})
+	svc, _ := newService(chars, &mockLootRoller{}, &mockInventoryWriter{})
 
-	grant, granted, err := svc.GrantOffline(context.Background(), stageReq(1, 5*time.Second))
+	grant, granted, err := svc.Accrue(context.Background(), stageReq(1, 5*time.Second))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if granted {
-		t.Fatalf("expected granted to be false for short elapsed time")
-	}
-	if grant.Gold != 0 || grant.Exp != 0 {
-		t.Fatalf("expected 0 gains, got gold=%d, exp=%d", grant.Gold, grant.Exp)
+	if granted || grant.Gold != 0 {
+		t.Fatalf("expected no grant for short elapsed, got granted=%v gold=%d", granted, grant.Gold)
 	}
 }
 
-func TestGrantOffline_Success(t *testing.T) {
+func TestAccrue_DefaultStageSuccess(t *testing.T) {
 	chars := &mockCharRewarder{leveledUp: true, newLevel: 2}
-	lootRoller := &mockLootRoller{
-		drops: []loot.DroppedItem{
-			{ItemDefinitionID: "gold", Quantity: 5},
-			{ItemDefinitionID: "iron_sword", Quantity: 1},
-		},
-	}
+	lootRoller := &mockLootRoller{drops: []loot.DroppedItem{
+		{ItemDefinitionID: "gold", Quantity: 5},
+		{ItemDefinitionID: "iron_sword", Quantity: 1},
+	}}
 	inv := &mockInventoryWriter{}
-	svc := idle.NewService(chars, lootRoller, inv)
+	svc, _ := newService(chars, lootRoller, inv)
 
-	grant, granted, err := svc.GrantOffline(context.Background(), stageReq(101, 600*time.Second))
+	// No assignment set -> defaults to the starter stage.
+	grant, granted, err := svc.Accrue(context.Background(), stageReq(101, 600*time.Second))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !granted {
-		t.Fatalf("expected granted to be true")
+		t.Fatal("expected a grant")
 	}
 	if grant.Gold == 0 && grant.Exp == 0 {
-		t.Fatalf("expected non-zero gold/exp")
+		t.Fatal("expected non-zero gold/exp")
 	}
 	if !grant.LeveledUp || grant.NewLevel != 2 {
-		t.Fatalf("expected level up to 2, got leveledUp=%v, newLevel=%d", grant.LeveledUp, grant.NewLevel)
+		t.Fatalf("expected level up to 2, got %+v", grant)
 	}
-	// loot rolls granted the iron_sword into the inventory
 	if len(inv.added) == 0 {
-		t.Fatalf("expected loot items granted to inventory")
+		t.Fatal("expected loot items in inventory")
 	}
 }
 
-func TestGrantOffline_LockedStageGrantsNothing(t *testing.T) {
-	chars := &mockCharRewarder{}
-	svc := idle.NewService(chars, &mockLootRoller{}, &mockInventoryWriter{})
-
-	// dragon_peak requires level 20 / power 600; a level-5, power-100 character
-	// is locked out entirely.
-	req := idle.OfflineRequest{
-		CharacterID:  7,
-		LastActiveAt: time.Now().Add(-3600 * time.Second),
-		Assignment:   idle.StageAssignment("dragon_peak"),
-		State:        idle.BuildState(100, 5, 0, 0),
-	}
-	_, granted, err := svc.GrantOffline(context.Background(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if granted {
-		t.Fatalf("expected no grant for a locked stage")
-	}
-	if chars.lastGold != 0 {
-		t.Fatalf("locked stage must not credit rewards")
-	}
-}
-
-func TestGrantOffline_Lifeskill(t *testing.T) {
+func TestAccrue_LockedStageNoActiveButGeneratorsRun(t *testing.T) {
 	chars := &mockCharRewarder{}
 	inv := &mockInventoryWriter{}
-	svc := idle.NewService(chars, &mockLootRoller{}, inv)
+	svc, r := newService(chars, &mockLootRoller{}, inv)
 
-	req := idle.OfflineRequest{
-		CharacterID:  9,
-		LastActiveAt: time.Now().Add(-600 * time.Second),
-		Assignment:   idle.LifeskillAssignment("mining"),
-		State:        idle.BuildState(0, 5, 8, 0), // skill level 8
-	}
-	grant, granted, err := svc.GrantOffline(context.Background(), req)
+	// Assign a stage the character is too weak for, and build a quarry: the
+	// active focus produces nothing but the generator still runs in parallel.
+	_ = r.assign.Set(context.Background(), 7, idle.StageAssignment("dragon_peak"))
+	_ = r.build.Set(context.Background(), 7, "quarry", 2)
+
+	grant, granted, err := svc.Accrue(context.Background(), idle.AccrualRequest{
+		CharacterID: 7, Since: time.Now().Add(-600 * time.Second), Power: 100, Level: 5,
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !granted {
-		t.Fatalf("expected mining to grant")
+		t.Fatal("expected the generator to produce even with a locked stage")
 	}
-	if len(grant.Loot) == 0 || len(inv.added) == 0 {
-		t.Fatalf("expected gathered ore in loot/inventory, got loot=%d added=%d", len(grant.Loot), len(inv.added))
+	if grant.Gold != 0 {
+		t.Fatalf("locked stage must not grant combat gold, got %d", grant.Gold)
 	}
-	if grant.Output.Amounts["mining_xp"] == 0 {
-		t.Fatalf("expected mining xp in the output ledger")
+	if grant.Resources["stone"] == 0 {
+		t.Fatalf("expected quarry to produce stone, got %+v", grant.Resources)
+	}
+	if b, _ := r.wallet.Balances(context.Background(), 7); b["stone"] != grant.Resources["stone"] {
+		t.Fatalf("wallet should hold the credited stone")
 	}
 }
 
-func TestGrantOffline_RewardError(t *testing.T) {
-	chars := &mockCharRewarder{err: fmt.Errorf("db error")}
-	svc := idle.NewService(chars, &mockLootRoller{}, &mockInventoryWriter{})
+func TestAccrue_Lifeskill(t *testing.T) {
+	chars := &mockCharRewarder{}
+	inv := &mockInventoryWriter{}
+	svc, r := newService(chars, &mockLootRoller{}, inv)
 
-	_, granted, err := svc.GrantOffline(context.Background(), stageReq(1, 600*time.Second))
+	ctx := context.Background()
+	_ = r.assign.Set(ctx, 9, idle.LifeskillAssignment("mining"))
+	_ = r.ls.Upsert(ctx, 9, idle.LifeskillState{SkillID: "mining", Level: 8, XP: 0})
+
+	grant, granted, err := svc.Accrue(ctx, idle.AccrualRequest{
+		CharacterID: 9, Since: time.Now().Add(-600 * time.Second), Power: 0, Level: 5,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !granted {
+		t.Fatal("expected mining to grant")
+	}
+	if len(grant.Loot) == 0 || len(inv.added) == 0 {
+		t.Fatalf("expected gathered ore, got loot=%d added=%d", len(grant.Loot), len(inv.added))
+	}
+	if grant.Output.Amounts["mining_xp"] == 0 {
+		t.Fatal("expected mining xp in the ledger")
+	}
+	// xp was applied to the persisted lifeskill.
+	if s, _ := r.ls.Get(ctx, 9, "mining"); s.XP == 0 && s.Level == 8 {
+		t.Fatal("expected mining progress to be persisted")
+	}
+}
+
+func TestAccrue_RewardError(t *testing.T) {
+	chars := &mockCharRewarder{err: fmt.Errorf("db error")}
+	svc, _ := newService(chars, &mockLootRoller{}, &mockInventoryWriter{})
+
+	_, granted, err := svc.Accrue(context.Background(), stageReq(1, 600*time.Second))
 	if err == nil {
-		t.Fatalf("expected error from AddRewards, got nil")
+		t.Fatal("expected error from AddRewards")
 	}
 	if granted {
-		t.Fatalf("expected granted to be false on error")
+		t.Fatal("expected granted=false on error")
 	}
 }

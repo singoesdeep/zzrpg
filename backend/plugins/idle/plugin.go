@@ -12,6 +12,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/game/idle"
 	"github.com/singoesdeep/zzrpg/backend/game/inventory"
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
+	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
 )
 
@@ -39,8 +40,17 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 	lootSvc := registry.MustResolve[loot.LootService](reg, "loot")
 	invSvc := registry.MustResolve[inventory.InventoryService](reg, "inventory")
 	hub := registry.MustResolve[*socket.Hub](reg, "hub")
+	db := registry.MustResolve[*database.DB](reg, "db")
 
-	idleSvc := idle.NewService(chars, lootSvc, invSvc)
+	idleSvc := idle.NewService(idle.Deps{
+		Chars:       chars,
+		Loot:        lootSvc,
+		Inv:         invSvc,
+		Assignments: idle.NewAssignmentRepo(db.Store),
+		Lifeskills:  idle.NewLifeskillRepo(db.Store),
+		Buildings:   idle.NewBuildingRepo(db.Store),
+		Wallet:      idle.NewWalletRepo(db.Store),
+	})
 
 	// Activation gating is handled by the plugin-scoped bus, so this handler
 	// automatically stops firing while the idle plugin is deactivated.
@@ -53,18 +63,16 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 		if err != nil {
 			return
 		}
-		// Default assignment: the starter combat stage. Per-character activity
-		// selection (stage / lifeskill / generator) and skill/building levels are
-		// Phase-2 persistence; for now everyone idles at the training yard, scaled
-		// by their combat power.
+		// The active focus (stage / lifeskill) and building/skill levels come from
+		// the character's persisted idle state; a character with no assignment
+		// falls back to the starter stage. Output scales with combat power.
 		power := idleSvc.Power(char.Stats.DerivedStats)
-		req := idle.OfflineRequest{
-			CharacterID:  e.CharacterID,
-			LastActiveAt: e.LastActiveAt,
-			Assignment:   idle.StageAssignment("training_yard"),
-			State:        idle.BuildState(power, char.Level, 0, 0),
-		}
-		grant, granted, err := idleSvc.GrantOffline(ctx, req)
+		grant, granted, err := idleSvc.Accrue(ctx, idle.AccrualRequest{
+			CharacterID: e.CharacterID,
+			Since:       e.LastActiveAt,
+			Power:       power,
+			Level:       char.Level,
+		})
 		if err != nil || !granted {
 			return
 		}
@@ -72,12 +80,14 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 		gainsSummary, _ := json.Marshal(map[string]interface{}{
 			"type": "OFFLINE_GAINS",
 			"payload": map[string]interface{}{
-				"elapsed_seconds": grant.ElapsedSeconds,
-				"gained_gold":     grant.Gold,
-				"gained_exp":      grant.Exp,
-				"leveled_up":      grant.LeveledUp,
-				"new_level":       grant.NewLevel,
-				"loot":            grant.Loot,
+				"elapsed_seconds":    grant.ElapsedSeconds,
+				"gained_gold":        grant.Gold,
+				"gained_exp":         grant.Exp,
+				"leveled_up":         grant.LeveledUp,
+				"new_level":          grant.NewLevel,
+				"loot":               grant.Loot,
+				"resources":          grant.Resources,
+				"lifeskill_levelups": grant.LifeskillLevelUps,
 			},
 		})
 		if client, exists := hub.GetClientByCharacterID(e.CharacterID); exists {
