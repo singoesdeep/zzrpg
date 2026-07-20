@@ -1,4 +1,4 @@
-<!-- sha: 08731c838fec0c212a60fc95d82ffb97492192e6 -->
+<!-- sha: 04db72f82190b095b78705852c6f0fe529f9c0cc -->
 # ⚔️ Combat Engine & Stat Core
 
 The combat engine is driven by the `combat` plugin ([backend/plugins/combat/plugin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/combat/plugin.go)) and relies on embedded CGo FFI bindings to the Rust `zzstat` high-performance stat calculation engine.
