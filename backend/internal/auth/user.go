@@ -7,9 +7,10 @@ import (
 )
 
 var (
-	ErrUserAlreadyExists = errors.New("username or email already registered")
-	ErrUserNotFound      = errors.New("user not found")
+	ErrUserAlreadyExists  = errors.New("username or email already registered")
+	ErrUserNotFound       = errors.New("user not found")
 	ErrInvalidCredentials = errors.New("invalid username or password")
+	ErrTooManyAttempts    = errors.New("too many failed login attempts; try again later")
 )
 
 // Role values for RBAC.

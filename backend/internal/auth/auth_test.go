@@ -119,3 +119,26 @@ func TestLogin(t *testing.T) {
 		t.Errorf("expected ErrInvalidCredentials for unknown user, got %v", err)
 	}
 }
+
+// TestLoginBruteForceLockout proves the login limiter locks a username after
+// repeated failures, so even the correct password is refused until the window
+// passes.
+func TestLoginBruteForceLockout(t *testing.T) {
+	repo := newMockUserRepository()
+	service := NewAuthService(repo, "secret")
+	if _, err := service.Register(context.Background(), "victim", "victim@test.com", "correctpassword"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// defaultLoginMaxFailures wrong attempts, each an invalid-credentials error.
+	for i := 0; i < defaultLoginMaxFailures; i++ {
+		if _, err := service.Login(context.Background(), "victim", "wrong"); err != ErrInvalidCredentials {
+			t.Fatalf("attempt %d: expected ErrInvalidCredentials, got %v", i+1, err)
+		}
+	}
+
+	// Now locked: the correct password is rejected with ErrTooManyAttempts.
+	if _, err := service.Login(context.Background(), "victim", "correctpassword"); err != ErrTooManyAttempts {
+		t.Errorf("expected ErrTooManyAttempts after lockout, got %v", err)
+	}
+}

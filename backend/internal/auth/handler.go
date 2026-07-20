@@ -91,6 +91,11 @@ func LoginHandler(service AuthService) http.HandlerFunc {
 				writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", err.Error())
 				return
 			}
+			if errors.Is(err, ErrTooManyAttempts) {
+				w.Header().Set("Retry-After", "900")
+				writeError(w, http.StatusTooManyRequests, "TOO_MANY_ATTEMPTS", err.Error())
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Login failed")
 			return
 		}

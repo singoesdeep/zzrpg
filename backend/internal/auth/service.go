@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,6 +18,7 @@ type AuthService interface {
 type authService struct {
 	repo      UserRepository
 	jwtSecret []byte
+	limiter   *loginLimiter
 }
 
 type Claims struct {
@@ -29,6 +32,7 @@ func NewAuthService(repo UserRepository, jwtSecret string) AuthService {
 	return &authService{
 		repo:      repo,
 		jwtSecret: []byte(jwtSecret),
+		limiter:   newLoginLimiter(defaultLoginMaxFailures, defaultLoginLockout),
 	}
 }
 
@@ -53,9 +57,19 @@ func (s *authService) Register(ctx context.Context, username, email, password st
 }
 
 func (s *authService) Login(ctx context.Context, username, password string) (string, error) {
+	// Brute-force guard: block further attempts once a username has accumulated
+	// too many recent failures, regardless of whether the password is now right.
+	key := strings.ToLower(strings.TrimSpace(username))
+	if s.limiter.locked(key) {
+		return "", ErrTooManyAttempts
+	}
+
 	user, err := s.repo.GetByUsername(ctx, username)
 	if err != nil {
-		if err == ErrUserNotFound {
+		if errors.Is(err, ErrUserNotFound) {
+			// Count failures for unknown usernames too, so the endpoint can't be
+			// used to brute-force which usernames exist.
+			s.limiter.fail(key)
 			return "", ErrInvalidCredentials
 		}
 		return "", err
@@ -64,8 +78,10 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 	// Compare password
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	if err != nil {
+		s.limiter.fail(key)
 		return "", ErrInvalidCredentials
 	}
+	s.limiter.success(key)
 
 	// Create JWT token
 	expirationTime := time.Now().Add(24 * time.Hour)
