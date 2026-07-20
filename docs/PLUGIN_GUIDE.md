@@ -128,10 +128,17 @@ implements `bus.Event`. Type-assert the payload in your handler.
 
 ## 4. A complete example
 
-[`backend/examples/plugins/xpboost`](../backend/examples/plugins/xpboost/plugin.go)
-is a full, tested reference plugin that uses **every** mechanism: a rewards filter
-(double gold), a pre-attack veto (protect a target), a `MobKilled` subscription,
-an HTTP route, and the lifecycle. Copy it as a starting point.
+Two tested reference plugins under `backend/examples/plugins/` show different
+patterns — copy whichever fits:
+
+- [`xpboost`](../backend/examples/plugins/xpboost/plugin.go) — **hook-driven**: a
+  rewards filter (double gold), a pre-attack veto (protect a target), a
+  `MobKilled` subscription, and an HTTP route.
+- [`achievements`](../backend/examples/plugins/achievements/plugin.go) — **purely
+  event-driven & stateful**: it uses no hooks, only subscribes to `MobKilled` /
+  `QuestCompleted` / `CharacterLeveledUp`, keeps per-character progress, **provides
+  its Tracker as a service** other plugins can resolve, and exposes a read
+  endpoint.
 
 ### Testing your plugin
 
