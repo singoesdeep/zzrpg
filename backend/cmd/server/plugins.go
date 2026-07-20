@@ -17,6 +17,10 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/backend/pkg/metrics"
+
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
@@ -143,6 +147,21 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	loot.RegisterEventDecoders(decoders)
 	if err := registry.Provide(reg, "eventDecoders", decoders); err != nil {
 		return err
+	}
+
+	// Domain metric: the outbox backlog (rows written but not yet dispatched),
+	// sampled at scrape time. Growth signals the relay is falling behind.
+	if m, err := registry.Resolve[*metrics.Metrics](reg, "metrics"); err == nil {
+		m.Registerer().MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "outbox_undispatched",
+			Help: "Number of outbox rows written but not yet dispatched by the relay.",
+		}, func() float64 {
+			qctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			var n float64
+			_ = p.db.Pool.QueryRow(qctx, `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&n)
+			return n
+		}))
 	}
 
 	// Optional cross-node event fan-out over Redis Streams. When Redis is

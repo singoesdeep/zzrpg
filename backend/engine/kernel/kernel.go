@@ -18,6 +18,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/backend/pkg/metrics"
 )
 
 // Kernel wires the engine primitives together and runs plugins.
@@ -27,10 +28,12 @@ type Kernel struct {
 	reg     *registry.Registry
 	bus     bus.EventBus
 	mux     *http.ServeMux
+	metrics *metrics.Metrics
 	plugins []plugin.Plugin
 }
 
-// New builds a kernel with a fresh registry, in-proc event bus, and HTTP mux.
+// New builds a kernel with a fresh registry, in-proc event bus, HTTP mux, and
+// Prometheus metrics.
 func New(cfg *config.Config, log *slog.Logger) *Kernel {
 	return &Kernel{
 		cfg: cfg,
@@ -38,8 +41,9 @@ func New(cfg *config.Config, log *slog.Logger) *Kernel {
 		reg: registry.New(),
 		// Fanout-wrapped so events can additionally be broadcast to other nodes
 		// when a forwarder is installed; a transparent pass-through until then.
-		bus: bus.NewFanout(bus.NewInProc(log)),
-		mux: http.NewServeMux(),
+		bus:     bus.NewFanout(bus.NewInProc(log)),
+		mux:     http.NewServeMux(),
+		metrics: metrics.New(),
 	}
 }
 
@@ -64,6 +68,13 @@ func (k *Kernel) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Metrics endpoint + registry access for plugins (so domain collectors can be
+	// registered during Init).
+	k.mux.Handle("GET /metrics", k.metrics.Handler())
+	if err := registry.Provide(k.reg, "metrics", k.metrics); err != nil {
+		return err
+	}
+
 	ic := &engineContext{ctx: ctx, k: k}
 	for _, p := range ordered {
 		if err := p.Init(ic); err != nil {
@@ -85,6 +96,7 @@ func (k *Kernel) Run(ctx context.Context) error {
 	handler = httpx.MaxBodyBytes(k.cfg.MaxBodyBytes)(handler)
 	handler = httpx.RateLimit(k.cfg.RateLimitRPS, k.cfg.RateLimitBurst, k.log)(handler)
 	handler = httpx.SecureHeaders(handler)
+	handler = k.metrics.Middleware(handler)
 	handler = httpx.RequestLogger(k.log)(handler)
 	handler = httpx.RequestID(handler)
 	handler = httpx.Recover(k.log)(handler)
