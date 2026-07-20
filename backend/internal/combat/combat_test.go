@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
@@ -112,7 +113,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 	questSvc := &mockQuestService{}
 
 	rewarder := killreward.New(charService, questSvc, nil, nil, nil)
-	service := NewCombatService(charService, statClient, registry, rewarder, nil)
+	service := NewCombatService(charService, statClient, registry, rewarder, nil, nil)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{
@@ -188,7 +189,7 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 		mobKilled <- ev.(MobKilled)
 	})
 
-	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus)
+	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
 	if err != nil {
@@ -217,5 +218,55 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 	}
 
 	registry.EndSession(2)
+	registry.EndSession(9999)
+}
+
+// TestCombatDamageHookFilter proves the synchronous hook seam: a plugin filter
+// registered on HookDamage modifies the damage mid-flow, before it lands — here
+// halving it — and the attack result reflects the modified value.
+func TestCombatDamageHookFilter(t *testing.T) {
+	registry := session.NewRegistry()
+	_ = registry.StartSession(3, 100.0, 50.0)
+
+	charService := &mockCharService{
+		char: &character.CharacterWithStats{
+			Character: character.Character{ID: 3, ClassName: "WARRIOR", Level: 10},
+			Stats: character.CharacterStats{
+				BaseStats:    map[string]float64{"STR": 15, "DEX": 10},
+				DerivedStats: map[string]float64{"ATTACK": 150, "CRIT_RATE": 5},
+			},
+		},
+	}
+	statClient := &mockStatClient{damageRes: statclient.DamageResult{IsHit: true, Damage: 100}}
+
+	hks := hooks.New(nil)
+	var sawContext DamageFilter
+	hooks.AddFilter(hks, HookDamage, 10, func(_ context.Context, d DamageFilter) DamageFilter {
+		sawContext = d
+		d.Damage = d.Damage / 2 // a "50% damage reduction" plugin
+		return d
+	})
+
+	service := NewCombatService(charService, statClient, registry,
+		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks)
+
+	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 3, DefenderID: 9999})
+	if err != nil {
+		t.Fatalf("attack failed: %v", err)
+	}
+
+	if res.Damage != 50 {
+		t.Errorf("expected the filter to halve damage to 50, got %d", res.Damage)
+	}
+	// The dummy has 1000 HP; 50 applied leaves 950.
+	if res.DefenderHP != 950 {
+		t.Errorf("expected defender HP 950 after filtered damage, got %v", res.DefenderHP)
+	}
+	// The filter received the right read-only context.
+	if sawContext.AttackerID != 3 || sawContext.DefenderID != 9999 || sawContext.Damage != 100 {
+		t.Errorf("filter got unexpected context: %+v", sawContext)
+	}
+
+	registry.EndSession(3)
 	registry.EndSession(9999)
 }

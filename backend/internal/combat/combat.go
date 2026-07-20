@@ -7,6 +7,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/session"
@@ -70,16 +71,18 @@ type combatService struct {
 	registry    *session.Registry
 	rewarder    KillRewarder
 	eventBus    bus.EventBus
+	hooks       *hooks.Hooks
 }
 
-// NewCombatService builds the combat service. eventBus may be nil, in which case
-// no domain events are published (the service is otherwise unchanged).
+// NewCombatService builds the combat service. eventBus and hks may be nil (no
+// events published / no hook filters applied, respectively).
 func NewCombatService(
 	charService CharacterReader,
 	statClient statclient.Client,
 	registry *session.Registry,
 	rewarder KillRewarder,
 	eventBus bus.EventBus,
+	hks *hooks.Hooks,
 ) CombatService {
 	return &combatService{
 		charService: charService,
@@ -87,6 +90,7 @@ func NewCombatService(
 		registry:    registry,
 		rewarder:    rewarder,
 		eventBus:    eventBus,
+		hooks:       hks,
 	}
 }
 
@@ -204,6 +208,20 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 			res.Damage = 1
 		}
 	}
+
+	// 3b. Let plugins filter the final damage before it lands (shields, difficulty
+	// modifiers, damage-boost events, ...). Clamp to a non-negative value so a
+	// filter can zero damage but never turn it into healing.
+	filtered := hooks.ApplyFilters(s.hooks, ctx, HookDamage, DamageFilter{
+		AttackerID: req.AttackerID,
+		DefenderID: req.DefenderID,
+		IsCrit:     res.IsCrit,
+		Damage:     res.Damage,
+	})
+	if filtered.Damage < 0 {
+		filtered.Damage = 0
+	}
+	res.Damage = filtered.Damage
 
 	// 4. If hit, deduct defender HP atomically and learn whether this attack
 	// landed the kill (killedNow), so death rewards are credited exactly once.

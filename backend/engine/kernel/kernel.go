@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
@@ -27,6 +28,7 @@ type Kernel struct {
 	log     *slog.Logger
 	reg     *registry.Registry
 	bus     bus.EventBus
+	hooks   *hooks.Hooks
 	mux     *http.ServeMux
 	metrics *metrics.Metrics
 	plugins []plugin.Plugin
@@ -42,6 +44,7 @@ func New(cfg *config.Config, log *slog.Logger) *Kernel {
 		// Fanout-wrapped so events can additionally be broadcast to other nodes
 		// when a forwarder is installed; a transparent pass-through until then.
 		bus:     bus.NewFanout(bus.NewInProc(log)),
+		hooks:   hooks.New(log),
 		mux:     http.NewServeMux(),
 		metrics: metrics.New(),
 	}
@@ -159,6 +162,7 @@ func (e *engineContext) Logger() *slog.Logger         { return e.k.log }
 func (e *engineContext) Config() *config.Config       { return e.k.cfg }
 func (e *engineContext) Registry() *registry.Registry { return e.k.reg }
 func (e *engineContext) Bus() bus.EventBus            { return e.k.bus }
+func (e *engineContext) Hooks() *hooks.Hooks          { return e.k.hooks }
 func (e *engineContext) Mux() *http.ServeMux          { return e.k.mux }
 
 // topoSort orders plugins so that every plugin appears after all plugins it

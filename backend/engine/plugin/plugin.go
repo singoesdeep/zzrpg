@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 )
@@ -48,6 +49,9 @@ type InitContext interface {
 	Config() *config.Config
 	Registry() *registry.Registry
 	Bus() bus.EventBus
+	// Hooks is the synchronous extension registry: plugins add filters (transform
+	// a value mid-flow) and actions (ordered side effects / gates) here during Init.
+	Hooks() *hooks.Hooks
 	// Mux is the shared HTTP router the kernel serves. Plugins register their
 	// routes on it during Init.
 	Mux() *http.ServeMux
