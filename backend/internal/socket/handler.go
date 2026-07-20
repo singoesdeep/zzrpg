@@ -4,15 +4,19 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 )
+
+// Authenticator validates a connection token and returns the authenticated
+// user's identity. Returning ok=false rejects the upgrade with 401. It keeps
+// the transport layer free of any JWT/auth-domain dependency: the caller
+// injects the concrete scheme.
+type Authenticator func(token string) (userID int64, username string, ok bool)
 
 // ServeWS returns the /ws HTTP handler. baseCtx is the parent for every
 // connection's context (typically the server's run context) so in-flight
 // message handling is cancelled on server shutdown as well as on disconnect.
-func ServeWS(baseCtx context.Context, hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
+// authenticate validates the ?token query parameter.
+func ServeWS(baseCtx context.Context, hub *Hub, authenticate Authenticator, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
 	// Configure upgrader to allow all origins in development
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
@@ -25,13 +29,8 @@ func ServeWS(baseCtx context.Context, hub *Hub, jwtSecret string, msgHandler fun
 			return
 		}
 
-		// Validate JWT Token (pin HS256 to prevent algorithm-substitution attacks)
-		claims := &auth.Claims{}
-		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
-			return []byte(jwtSecret), nil
-		}, jwt.WithValidMethods([]string{"HS256"}))
-
-		if err != nil || !token.Valid {
+		userID, username, ok := authenticate(tokenStr)
+		if !ok {
 			http.Error(w, "UnauthorizedClaim", http.StatusUnauthorized)
 			return
 		}
@@ -48,8 +47,8 @@ func ServeWS(baseCtx context.Context, hub *Hub, jwtSecret string, msgHandler fun
 			Hub:      hub,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),
-			UserID:   claims.UserID,
-			Username: claims.Username,
+			UserID:   userID,
+			Username: username,
 			ctx:      connCtx,
 			cancel:   cancel,
 		}

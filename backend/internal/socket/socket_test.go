@@ -52,7 +52,7 @@ func TestWebSocketHubAndClient(t *testing.T) {
 	}
 
 	// 2. Start HTTP Test Server
-	server := httptest.NewServer(ServeWS(context.Background(), hub, jwtSecret, msgHandler, nil))
+	server := httptest.NewServer(ServeWS(context.Background(), hub, testAuth(jwtSecret), msgHandler, nil))
 	defer server.Close()
 
 	// 3. Generate Valid JWT Token for singo
@@ -129,5 +129,15 @@ func TestWebSocketHubAndClient(t *testing.T) {
 	payloadMap := chatResponse["payload"].(map[string]interface{})
 	if payloadMap["username"] != "singo" || payloadMap["message"] != "hello world" {
 		t.Errorf("unexpected chat broadcast payload: %+v", payloadMap)
+	}
+}
+
+func testAuth(secret string) Authenticator {
+	return func(token string) (int64, string, bool) {
+		claims, err := auth.ParseAccessToken(secret, token)
+		if err != nil {
+			return 0, "", false
+		}
+		return claims.UserID, claims.Username, true
 	}
 }

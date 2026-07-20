@@ -19,6 +19,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 
+	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
@@ -114,7 +115,14 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.cache = appCache
 
 	p.hub = socket.NewHub()
-	p.hub.SetEventBus(ic.Bus())
+	// Translate transport-level disconnects into a domain logout event, without
+	// the socket layer depending on the character domain.
+	eventBus := ic.Bus()
+	p.hub.SetLogoutHandler(func(characterID int64) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = eventBus.Publish(ctx, character.CharacterLoggedOut{CharacterID: characterID})
+	})
 	p.router = socket.NewMessageRouter()
 	// Gate owned WS message types on their plugin's activation state so the
 	// Admin Dashboard toggle actually suppresses live traffic.
@@ -337,7 +345,14 @@ func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *
 			p.sessionReg.EndSession(client.CharacterID)
 		}
 	}
-	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, jwtSecret, p.router.Dispatch, disconnect))
+	authenticate := func(token string) (int64, string, bool) {
+		claims, err := auth.ParseAccessToken(jwtSecret, token)
+		if err != nil {
+			return 0, "", false
+		}
+		return claims.UserID, claims.Username, true
+	}
+	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, authenticate, p.router.Dispatch, disconnect))
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {

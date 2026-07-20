@@ -16,9 +16,25 @@ const (
 	RoleKey     contextKey = "role"
 )
 
-func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
-	secretBytes := []byte(jwtSecret)
+// ParseAccessToken validates a signed access token against jwtSecret and
+// returns its claims. It pins HS256 to defend against algorithm-substitution
+// attacks. It is the single place token validation lives, shared by the HTTP
+// middleware and any other transport (e.g. WebSocket auth).
+func ParseAccessToken(jwtSecret, tokenString string) (*Claims, error) {
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+		return []byte(jwtSecret), nil
+	}, jwt.WithValidMethods([]string{"HS256"}))
+	if err != nil {
+		return nil, err
+	}
+	if !token.Valid {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	return claims, nil
+}
 
+func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -33,16 +49,8 @@ func AuthMiddleware(jwtSecret string) func(http.Handler) http.Handler {
 				return
 			}
 
-			tokenString := parts[1]
-			claims := &Claims{}
-
-			// Pin the accepted signing algorithm to HS256 to defend against
-			// algorithm-substitution attacks (e.g. a forged "none" token).
-			token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-				return secretBytes, nil
-			}, jwt.WithValidMethods([]string{"HS256"}))
-
-			if err != nil || !token.Valid {
+			claims, err := ParseAccessToken(jwtSecret, parts[1])
+			if err != nil {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Invalid or expired token")
 				return
 			}

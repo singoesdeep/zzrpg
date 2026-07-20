@@ -1,11 +1,7 @@
 package socket
 
 import (
-	"context"
 	"sync"
-
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
 )
 
 type Hub struct {
@@ -17,7 +13,7 @@ type Hub struct {
 	Unregister chan *Client
 	Broadcast  chan []byte
 
-	eventBus bus.EventBus
+	onLogout func(characterID int64)
 }
 
 func NewHub() *Hub {
@@ -30,10 +26,11 @@ func NewHub() *Hub {
 	}
 }
 
-// SetEventBus attaches an engine bus so the hub can publish session-lifecycle
-// events (CharacterLoggedOut). Optional and nil-safe: without it the hub behaves
-// exactly as before.
-func (h *Hub) SetEventBus(b bus.EventBus) { h.eventBus = b }
+// SetLogoutHandler registers a callback invoked (outside the hub lock) whenever
+// a character's connection is dropped. It lets the caller react to session
+// teardown — e.g. publish a domain logout event — without the transport layer
+// depending on any domain package. Optional and nil-safe.
+func (h *Hub) SetLogoutHandler(fn func(characterID int64)) { h.onLogout = fn }
 
 func (h *Hub) Run() {
 	for {
@@ -86,9 +83,9 @@ func (h *Hub) removeClient(client *Client) {
 	}
 	h.mu.Unlock()
 
-	// Publish the logout outside the lock; the bus is async and nil-safe.
-	if loggedOut > 0 && h.eventBus != nil {
-		_ = h.eventBus.Publish(context.Background(), character.CharacterLoggedOut{CharacterID: loggedOut})
+	// Notify the caller outside the lock; the handler is nil-safe.
+	if loggedOut > 0 && h.onLogout != nil {
+		h.onLogout(loggedOut)
 	}
 }
 
