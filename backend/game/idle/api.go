@@ -3,6 +3,8 @@ package idle
 import (
 	"context"
 	"errors"
+
+	"github.com/singoesdeep/zzrpg/backend/content"
 )
 
 // Errors returned by the API-facing service methods, mapped to HTTP statuses by
@@ -13,13 +15,31 @@ var (
 	ErrNotAGenerator         = errors.New("idle: not a generator")
 	ErrMaxLevel              = errors.New("idle: generator already at max level")
 	ErrInsufficientResources = errors.New("idle: insufficient resources")
+	ErrInsufficientGold      = errors.New("idle: insufficient gold")
 )
+
+// CostGoldKey is the reserved upgrade_cost key that is paid from the character's
+// gold (earned from combat) rather than the resource wallet. This lets a fresh
+// character bootstrap their first generator without needing the very resource it
+// would produce.
+const CostGoldKey = "gold"
+
+// GeneratorView is a generator's current level plus the cost to raise it once
+// more, so a client can render the build/upgrade action.
+type GeneratorView struct {
+	ID       string           `json:"id"`
+	Resource string           `json:"resource"`
+	Level    int32            `json:"level"`
+	Maxed    bool             `json:"maxed"`
+	NextCost map[string]int64 `json:"next_cost,omitempty"`
+}
 
 // StateView is a character's full idle state for the API.
 type StateView struct {
 	Assignment Assignment       `json:"assignment"`
 	Lifeskills []LifeskillState `json:"lifeskills"`
 	Buildings  map[string]int32 `json:"buildings"`
+	Generators []GeneratorView  `json:"generators"`
 	Wallet     map[string]int64 `json:"wallet"`
 }
 
@@ -46,7 +66,20 @@ func (s *Service) State(ctx context.Context, charID int64) (StateView, error) {
 	if err != nil {
 		return StateView{}, err
 	}
-	return StateView{Assignment: a, Lifeskills: ls, Buildings: buildings, Wallet: wallet}, nil
+
+	var gens []GeneratorView
+	for _, id := range s.catalog.GeneratorIDs() {
+		g, _ := s.catalog.Generator(id)
+		lvl := buildings[id]
+		maxed := g.MaxLevel > 0 && lvl >= g.MaxLevel
+		view := GeneratorView{ID: id, Resource: g.Resource, Level: lvl, Maxed: maxed}
+		if !maxed {
+			view.NextCost = UpgradeCostFor(g, lvl)
+		}
+		gens = append(gens, view)
+	}
+
+	return StateView{Assignment: a, Lifeskills: ls, Buildings: buildings, Generators: gens, Wallet: wallet}, nil
 }
 
 // ActivityView is one selectable activity and whether the character may use it.
@@ -95,8 +128,22 @@ func (s *Service) Assign(ctx context.Context, charID int64, power float64, level
 	return s.deps.Assignments.Set(ctx, charID, a)
 }
 
-// UpgradeBuilding spends the scaled wallet cost to raise a generator one level.
-// Cost to reach level N is the generator's base UpgradeCost times N.
+// UpgradeCostFor returns the cost to raise a generator from currentLevel to the
+// next level: the generator's base UpgradeCost scaled by the target level. The
+// "gold" key (CostGoldKey) is paid from the character's gold; all other keys are
+// paid from the resource wallet.
+func UpgradeCostFor(g content.Generator, currentLevel int32) map[string]int64 {
+	next := int64(currentLevel + 1)
+	cost := make(map[string]int64, len(g.UpgradeCost))
+	for res, base := range g.UpgradeCost {
+		cost[res] = base * next
+	}
+	return cost
+}
+
+// UpgradeBuilding raises a generator one level, paying its scaled cost: the
+// "gold" portion from the character (atomic) and any resource portion from the
+// wallet. Costs are checked before anything is debited.
 func (s *Service) UpgradeBuilding(ctx context.Context, charID int64, generatorID string) (int32, error) {
 	g, ok := s.catalog.Generator(generatorID)
 	if !ok {
@@ -111,19 +158,40 @@ func (s *Service) UpgradeBuilding(ctx context.Context, charID int64, generatorID
 		return 0, ErrMaxLevel
 	}
 
+	// Split the cost into gold vs wallet resources.
+	var goldCost int64
+	resCost := map[string]int64{}
+	for res, c := range UpgradeCostFor(g, cur) {
+		if res == CostGoldKey {
+			goldCost = c
+		} else {
+			resCost[res] = c
+		}
+	}
+
+	// Check resource affordability up front (wallet).
 	balances, err := s.deps.Wallet.Balances(ctx, charID)
 	if err != nil {
 		return 0, err
 	}
-	cost := make(map[string]int64, len(g.UpgradeCost))
-	for res, base := range g.UpgradeCost {
-		c := base * int64(next)
-		cost[res] = c
+	for res, c := range resCost {
 		if balances[res] < c {
 			return 0, ErrInsufficientResources
 		}
 	}
-	for res, c := range cost {
+
+	// Pay gold first — SpendGold checks and debits atomically, so a shortfall
+	// aborts before any resource is touched.
+	if goldCost > 0 {
+		okGold, err := s.deps.Chars.SpendGold(ctx, charID, goldCost)
+		if err != nil {
+			return 0, err
+		}
+		if !okGold {
+			return 0, ErrInsufficientGold
+		}
+	}
+	for res, c := range resCost {
 		if err := s.deps.Wallet.Credit(ctx, charID, res, -c); err != nil {
 			return 0, err
 		}

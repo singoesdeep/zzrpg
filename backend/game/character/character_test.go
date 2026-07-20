@@ -118,6 +118,18 @@ func (m *mockCharacterRepository) AddRewards(ctx context.Context, charID int64, 
 	return false, c.Character.Level, nil
 }
 
+func (m *mockCharacterRepository) SpendGold(ctx context.Context, charID int64, amount int64) (bool, error) {
+	c, ok := m.characters[charID]
+	if !ok {
+		return false, ErrCharacterNotFound
+	}
+	if c.Character.Gold < amount {
+		return false, nil
+	}
+	c.Character.Gold -= amount
+	return true, nil
+}
+
 func TestCreateCharacter(t *testing.T) {
 	repo := newMockCharacterRepository()
 	service := NewCharacterService(repo, mockStat{}, nil, nil, nil)

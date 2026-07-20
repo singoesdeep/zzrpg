@@ -114,6 +114,8 @@ func UpgradeBuildingHandler(svc *Service, chars CharacterReader) http.HandlerFun
 			httpx.WriteError(w, http.StatusConflict, "MAX_LEVEL", "generator already at max level")
 		case errors.Is(err, ErrInsufficientResources):
 			httpx.WriteError(w, http.StatusPaymentRequired, "INSUFFICIENT_RESOURCES", "not enough resources")
+		case errors.Is(err, ErrInsufficientGold):
+			httpx.WriteError(w, http.StatusPaymentRequired, "INSUFFICIENT_GOLD", "not enough gold")
 		case err != nil:
 			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL", "failed to upgrade")
 		default:

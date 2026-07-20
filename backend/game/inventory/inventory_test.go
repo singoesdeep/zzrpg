@@ -98,6 +98,9 @@ func (m *mockCharacterService) SetEquipmentProvider(p character.EquipmentProvide
 func (m *mockCharacterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
 	return false, 0, nil
 }
+func (m *mockCharacterService) SpendGold(ctx context.Context, charID int64, amount int64) (bool, error) {
+	return true, nil
+}
 func (m *mockCharacterService) UpdateLastActive(ctx context.Context, charID int64) error {
 	return nil
 }

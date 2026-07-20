@@ -20,6 +20,7 @@ type CharacterService interface {
 	RecalculateStats(ctx context.Context, id int64) error
 	SetEquipmentProvider(p EquipmentProvider)
 	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
+	SpendGold(ctx context.Context, charID int64, amount int64) (bool, error)
 	UpdateLastActive(ctx context.Context, charID int64) error
 }
 
@@ -158,6 +159,12 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 
 	s.publish(ctx, StatsRecalculated{CharacterID: charID, DerivedStats: finalStats})
 	return nil
+}
+
+// SpendGold atomically debits gold from a character, returning false when the
+// balance is insufficient.
+func (s *characterService) SpendGold(ctx context.Context, charID int64, amount int64) (bool, error) {
+	return s.repo.SpendGold(ctx, charID, amount)
 }
 
 func (s *characterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {

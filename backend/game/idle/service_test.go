@@ -18,6 +18,8 @@ type mockCharRewarder struct {
 	leveledUp  bool
 	newLevel   int32
 	err        error
+	gold       int64 // available gold for SpendGold
+	spent      int64 // total gold spent
 }
 
 func (m *mockCharRewarder) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
@@ -25,6 +27,15 @@ func (m *mockCharRewarder) AddRewards(ctx context.Context, charID int64, gold in
 	m.lastGold = gold
 	m.lastExp = exp
 	return m.leveledUp, m.newLevel, m.err
+}
+
+func (m *mockCharRewarder) SpendGold(ctx context.Context, charID int64, amount int64) (bool, error) {
+	if m.gold < amount {
+		return false, nil
+	}
+	m.gold -= amount
+	m.spent += amount
+	return true, nil
 }
 
 type mockLootRoller struct {

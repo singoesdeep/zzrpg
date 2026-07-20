@@ -19,9 +19,12 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
 )
 
-// CharacterRewarder credits gold/exp to a character.
+// CharacterRewarder credits/debits a character's gold and exp.
 type CharacterRewarder interface {
 	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
+	// SpendGold atomically debits gold, returning false when the balance is
+	// insufficient (used to pay gold-priced building upgrades).
+	SpendGold(ctx context.Context, charID int64, amount int64) (bool, error)
 }
 
 // LootRoller rolls a loot table.

@@ -52,22 +52,19 @@ func TestAssign(t *testing.T) {
 	}
 }
 
-func TestUpgradeBuilding(t *testing.T) {
+func TestUpgradeBuilding_GoldCostBootstraps(t *testing.T) {
 	ctx := context.Background()
-	svc, r := newService(&mockCharRewarder{}, &mockLootRoller{}, &mockInventoryWriter{})
+	chars := &mockCharRewarder{gold: 500}
+	svc, r := newService(chars, &mockLootRoller{}, &mockInventoryWriter{})
 
-	// lumber_mill upgrade to level 1 costs 30 wood; wallet empty -> insufficient.
-	if _, err := svc.UpgradeBuilding(ctx, 1, "lumber_mill"); !errors.Is(err, idle.ErrInsufficientResources) {
-		t.Fatalf("expected insufficient resources, got %v", err)
-	}
-	// fund the wallet and upgrade.
-	_ = r.wallet.Credit(ctx, 1, "wood", 100)
+	// lumber_mill level 1 costs 100 gold — payable from combat gold with an
+	// empty wallet (the bootstrap case).
 	lvl, err := svc.UpgradeBuilding(ctx, 1, "lumber_mill")
 	if err != nil || lvl != 1 {
 		t.Fatalf("expected level 1, got lvl=%d err=%v", lvl, err)
 	}
-	if b, _ := r.wallet.Balances(ctx, 1); b["wood"] != 70 { // 100 - 30
-		t.Fatalf("expected 70 wood left, got %d", b["wood"])
+	if chars.spent != 100 {
+		t.Fatalf("expected 100 gold spent, got %d", chars.spent)
 	}
 	if bl, _ := r.build.Get(ctx, 1, "lumber_mill"); bl != 1 {
 		t.Fatalf("building level should be 1, got %d", bl)
@@ -75,6 +72,45 @@ func TestUpgradeBuilding(t *testing.T) {
 	// unknown generator
 	if _, err := svc.UpgradeBuilding(ctx, 1, "nope"); !errors.Is(err, idle.ErrNotAGenerator) {
 		t.Fatalf("expected ErrNotAGenerator, got %v", err)
+	}
+}
+
+func TestUpgradeBuilding_InsufficientGold(t *testing.T) {
+	ctx := context.Background()
+	poor := &mockCharRewarder{gold: 10}
+	svc, _ := newService(poor, &mockLootRoller{}, &mockInventoryWriter{})
+
+	if _, err := svc.UpgradeBuilding(ctx, 2, "lumber_mill"); !errors.Is(err, idle.ErrInsufficientGold) {
+		t.Fatalf("expected ErrInsufficientGold, got %v", err)
+	}
+	if poor.spent != 0 {
+		t.Fatalf("no gold should be spent on a failed upgrade, spent=%d", poor.spent)
+	}
+}
+
+func TestUpgradeBuilding_MixedGoldAndResource(t *testing.T) {
+	ctx := context.Background()
+	chars := &mockCharRewarder{gold: 500}
+	svc, r := newService(chars, &mockLootRoller{}, &mockInventoryWriter{})
+
+	// forge costs 150 gold + 20 stone. Gold is affordable but there is no stone.
+	if _, err := svc.UpgradeBuilding(ctx, 1, "forge"); !errors.Is(err, idle.ErrInsufficientResources) {
+		t.Fatalf("expected ErrInsufficientResources, got %v", err)
+	}
+	if chars.spent != 0 {
+		t.Fatalf("gold must not be spent when the resource check fails first, spent=%d", chars.spent)
+	}
+	// Fund stone (e.g. from the quarry) and retry.
+	_ = r.wallet.Credit(ctx, 1, "stone", 50)
+	lvl, err := svc.UpgradeBuilding(ctx, 1, "forge")
+	if err != nil || lvl != 1 {
+		t.Fatalf("expected forge level 1, got lvl=%d err=%v", lvl, err)
+	}
+	if chars.spent != 150 {
+		t.Fatalf("expected 150 gold spent, got %d", chars.spent)
+	}
+	if b, _ := r.wallet.Balances(ctx, 1); b["stone"] != 30 { // 50 - 20
+		t.Fatalf("expected 30 stone left, got %d", b["stone"])
 	}
 }
 

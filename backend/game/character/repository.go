@@ -184,6 +184,32 @@ func (r *pgCharacterRepository) UpdateLastActive(ctx context.Context, charID int
 	return nil
 }
 
+func (r *pgCharacterRepository) SpendGold(ctx context.Context, charID int64, amount int64) (bool, error) {
+	if amount <= 0 {
+		return true, nil
+	}
+	var ok bool
+	err := r.db.WithinTx(ctx, func(q store.Querier) error {
+		var gold int64
+		err := q.QueryRow(ctx, "SELECT gold FROM characters WHERE id = $1 FOR UPDATE", charID).Scan(&gold)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrCharacterNotFound
+			}
+			return err
+		}
+		if gold < amount {
+			return nil // ok stays false: insufficient funds, not an error
+		}
+		if _, err := q.Exec(ctx, "UPDATE characters SET gold = gold - $1, updated_at = NOW() WHERE id = $2", amount, charID); err != nil {
+			return err
+		}
+		ok = true
+		return nil
+	})
+	return ok, err
+}
+
 func (r *pgCharacterRepository) AddRewards(ctx context.Context, charID int64, goldToAdd int64, expToAdd int64) (bool, int32, error) {
 	var leveledUp bool
 	var newLevel int32

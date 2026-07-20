@@ -51,6 +51,9 @@ type CharacterRepository interface {
 	UpdateStats(ctx context.Context, charID int64, derivedStats map[string]float64) error
 	UpdateLastActive(ctx context.Context, charID int64) error
 	AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error)
+	// SpendGold atomically debits amount from the character's gold if the balance
+	// is sufficient, returning ok=false (no error) when it is not.
+	SpendGold(ctx context.Context, charID int64, amount int64) (ok bool, err error)
 }
 
 // EquipmentModifier is a domain alias for the shared contracts.Modifier.
