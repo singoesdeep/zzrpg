@@ -116,8 +116,7 @@ func (s *combatService) publish(ctx context.Context, ev bus.Event) {
 }
 
 func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*AttackResult, error) {
-	// 0. Let plugins veto the attack before anything happens (peaceful zones,
-	// stuns, disarms). A returned error aborts the attack.
+	// 0. Veto attack via pre-attack hooks.
 	if err := hooks.DoAction(s.hooks, ctx, HookPreAttack, PreAttack{
 		AttackerID: req.AttackerID,
 		DefenderID: req.DefenderID,
@@ -126,69 +125,86 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		return nil, err
 	}
 
-	// 1. Resolve the attacker (character/mob/pet) and its combat stats.
-	attacker, ok, err := s.creatures.Resolve(ctx, req.AttackerID)
-	if err != nil || !ok {
-		return nil, ErrAttackerNotFound
-	}
-	if sess, exists := s.registry.GetSession(req.AttackerID); exists && sess.IsDead {
-		return nil, ErrAttackerDead
+	// 1. Resolve attacker & skill.
+	attacker, skillMult, skillFlat, err := s.resolveAttackerAndSkill(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
-	// 1b. Resolve the skill server-side (a basic attack when no skill is named).
-	// The multiplier/flat/mana come from the server's skill pack, never the
-	// client. Class is gated and mana is spent from the attacker's session.
+	// 2. Resolve defender & session state.
+	defender, defenderHP, defenderMaxHP, defenderIsDead, err := s.resolveDefender(ctx, req.DefenderID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Compute damage via zzstat and apply damage filters.
+	res, err := s.computeDamage(ctx, req, attacker, defender, skillMult, skillFlat)
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. Deduct HP, grant kill rewards, and publish domain events.
+	return s.applyDamageAndEvents(ctx, req, attacker, defender, res, defenderHP, defenderMaxHP, defenderIsDead)
+}
+
+func (s *combatService) resolveAttackerAndSkill(ctx context.Context, req AttackRequest) (creature.Creature, float64, float64, error) {
+	attacker, ok, err := s.creatures.Resolve(ctx, req.AttackerID)
+	if err != nil || !ok {
+		return creature.Creature{}, 0, 0, ErrAttackerNotFound
+	}
+	if sess, exists := s.registry.GetSession(req.AttackerID); exists && sess.IsDead {
+		return creature.Creature{}, 0, 0, ErrAttackerDead
+	}
+
 	var skillMult, skillFlat float64
 	if req.SkillID != "" {
 		if s.skills == nil {
-			return nil, ErrUnknownSkill
+			return creature.Creature{}, 0, 0, ErrUnknownSkill
 		}
 		eff, ok := s.skills.Resolve(req.SkillID)
 		if !ok {
-			return nil, ErrUnknownSkill
+			return creature.Creature{}, 0, 0, ErrUnknownSkill
 		}
 		if eff.ClassReq != "" && attacker.Class != eff.ClassReq {
-			return nil, ErrSkillClassMismatch
+			return creature.Creature{}, 0, 0, ErrSkillClassMismatch
 		}
 		if eff.ManaCost > 0 && !s.registry.SpendMP(req.AttackerID, eff.ManaCost) {
-			return nil, ErrNotEnoughMana
+			return creature.Creature{}, 0, 0, ErrNotEnoughMana
 		}
 		skillMult = eff.Multiplier
 		skillFlat = eff.FlatDamage
 	}
+	return attacker, skillMult, skillFlat, nil
+}
 
-	// 2. Resolve the defender and its session state. A mob's session is created
-	// (and revived) on demand; a character must be in an active, living session.
-	defender, ok, err := s.creatures.Resolve(ctx, req.DefenderID)
+func (s *combatService) resolveDefender(ctx context.Context, defenderID int64) (creature.Creature, float64, float64, bool, error) {
+	defender, ok, err := s.creatures.Resolve(ctx, defenderID)
 	if err != nil || !ok {
-		return nil, ErrDefenderNotFound
+		return creature.Creature{}, 0, 0, false, ErrDefenderNotFound
 	}
 
-	var defenderHP, defenderMaxHP float64
-	var defenderIsDead bool
 	if defender.Kind == creature.KindMob {
-		sess, exists := s.registry.GetSession(req.DefenderID)
+		sess, exists := s.registry.GetSession(defenderID)
 		if !exists {
-			sess = s.registry.StartSession(req.DefenderID, defender.MaxHP, defender.MaxMP)
+			sess = s.registry.StartSession(defenderID, defender.MaxHP, defender.MaxMP)
 		} else if sess.IsDead {
-			// Auto revive (testing convenience); mutate through the registry so
-			// the change is applied under its lock, then re-read.
-			s.registry.Revive(req.DefenderID)
-			sess, _ = s.registry.GetSession(req.DefenderID)
+			s.registry.Revive(defenderID)
+			sess, _ = s.registry.GetSession(defenderID)
 		}
-		defenderHP, defenderMaxHP, defenderIsDead = sess.CurrentHP, sess.MaxHP, sess.IsDead
-	} else {
-		sess, exists := s.registry.GetSession(req.DefenderID)
-		if !exists {
-			return nil, ErrDefenderNotFound
-		}
-		if sess.IsDead {
-			return nil, ErrDefenderDead
-		}
-		defenderHP, defenderMaxHP, defenderIsDead = sess.CurrentHP, sess.MaxHP, sess.IsDead
+		return defender, sess.CurrentHP, sess.MaxHP, sess.IsDead, nil
 	}
 
-	// 3. Call Rust zzstat Core via embedded statclient
+	sess, exists := s.registry.GetSession(defenderID)
+	if !exists {
+		return creature.Creature{}, 0, 0, false, ErrDefenderNotFound
+	}
+	if sess.IsDead {
+		return creature.Creature{}, 0, 0, false, ErrDefenderDead
+	}
+	return defender, sess.CurrentHP, sess.MaxHP, sess.IsDead, nil
+}
+
+func (s *combatService) computeDamage(ctx context.Context, req AttackRequest, attacker, defender creature.Creature, skillMult, skillFlat float64) (statclient.DamageResult, error) {
 	calcReq := statclient.CalculateDamageReq{
 		Attacker: statclient.CombatStats{
 			Level:           attacker.Level,
@@ -207,16 +223,11 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		SkillFlatDamage: skillFlat,
 	}
 
-	// Damage is computed only by zzstat — no Go fallback. If the resolver fails,
-	// the attack fails rather than silently using different math.
 	res, err := s.statClient.CalculateDamage(ctx, calcReq)
 	if err != nil {
-		return nil, err
+		return statclient.DamageResult{}, err
 	}
 
-	// 3b. Let plugins filter the final damage before it lands (shields, difficulty
-	// modifiers, damage-boost events, ...). Clamp to a non-negative value so a
-	// filter can zero damage but never turn it into healing.
 	filtered := hooks.ApplyFilters(s.hooks, ctx, HookDamage, DamageFilter{
 		AttackerID: req.AttackerID,
 		DefenderID: req.DefenderID,
@@ -227,9 +238,10 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		filtered.Damage = 0
 	}
 	res.Damage = filtered.Damage
+	return res, nil
+}
 
-	// 4. If hit, deduct defender HP atomically and learn whether this attack
-	// landed the kill (killedNow), so death rewards are credited exactly once.
+func (s *combatService) applyDamageAndEvents(ctx context.Context, req AttackRequest, attacker, defender creature.Creature, res statclient.DamageResult, defenderHP, defenderMaxHP float64, defenderIsDead bool) (*AttackResult, error) {
 	var killedNow bool
 	if res.IsHit {
 		finalHP, finalIsDead, killed := s.registry.DeductHPAndReserveKill(req.DefenderID, float64(res.Damage))
@@ -244,19 +256,11 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		})
 	}
 
-	// 5. Trigger death progression (loot, quest progress) only for the attacker
-	// that actually killed the defender — prevents double loot/quest rewards when
-	// concurrent attackers finish the same target. The orchestration lives behind
-	// KillRewarder so combat stays decoupled from the quest/loot/inventory
-	// services; it runs synchronously so the rolled loot is part of the response.
 	var rolledLoot []loot.DroppedItem
 	if killedNow && s.rewarder != nil {
 		rolledLoot = s.rewarder.RewardKill(ctx, req.AttackerID, req.DefenderID)
 	}
 
-	// 6. Emit domain events for consumers (analytics, achievements, aggro/AI,
-	// death penalties, client fan-out). These are additive and async — they do
-	// not alter the synchronous reward path above.
 	s.publish(ctx, CombatAttackResolved{
 		AttackerID:     req.AttackerID,
 		DefenderID:     req.DefenderID,

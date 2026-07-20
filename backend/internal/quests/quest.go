@@ -49,12 +49,12 @@ type QuestDefinition struct {
 }
 
 type CharacterQuest struct {
-	CharacterID      int32           `json:"character_id"`
-	QuestID          string          `json:"quest_id"`
-	Status           string          `json:"status"` // "ACTIVE", "COMPLETED"
-	CurrentStepIndex int32           `json:"current_step_index"`
-	Progress         []int32         `json:"progress"` // tracks progress value for each step
-	UpdatedAt        time.Time       `json:"updated_at"`
+	CharacterID      int32            `json:"character_id"`
+	QuestID          string           `json:"quest_id"`
+	Status           string           `json:"status"` // "ACTIVE", "COMPLETED"
+	CurrentStepIndex int32            `json:"current_step_index"`
+	Progress         []int32          `json:"progress"` // tracks progress value for each step
+	UpdatedAt        time.Time        `json:"updated_at"`
 	Definition       *QuestDefinition `json:"definition,omitempty"`
 }
 
