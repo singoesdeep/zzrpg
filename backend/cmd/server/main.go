@@ -38,6 +38,7 @@ func main() {
 		lootPlugin{},
 		questsPlugin{},
 		combatPlugin{},
+		&idlePlugin{},
 	)
 
 	// Cancel the run context on SIGINT/SIGTERM for graceful shutdown.

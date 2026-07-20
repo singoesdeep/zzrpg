@@ -425,9 +425,6 @@ func (itemsPlugin) Init(ic plugin.InitContext) error {
 type characterPlugin struct {
 	charService character.CharacterService
 	hub         *socket.Hub
-	lootService loot.LootService
-	invService  inventory.InventoryService
-	idle        *idle.Service
 	eventBus    bus.EventBus
 	sessionReg  *session.Registry
 	store       store.Store
@@ -493,21 +490,12 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 	return nil
 }
 
-// Start resolves cross-plugin services (loot, inventory) once every plugin has
-// initialised, avoiding a construction-time dependency cycle with inventory.
-func (p *characterPlugin) Start(rc plugin.RunContext) error {
-	reg := rc.Registry()
-	p.lootService = registry.MustResolve[loot.LootService](reg, "loot")
-	p.invService = registry.MustResolve[inventory.InventoryService](reg, "inventory")
-	p.idle = idle.NewService(p.charService, p.lootService, p.invService)
-	return nil
-}
+func (p *characterPlugin) Start(plugin.RunContext) error { return nil }
 
 func (p *characterPlugin) Stop(context.Context) error { return nil }
 
-// handleSelectCharacter starts an in-memory combat session, computes and grants
-// offline gains, and acknowledges the selection. Ported verbatim from the
-// previous main() WS switch.
+// handleSelectCharacter starts an in-memory combat session, announces login via
+// domain event, and acknowledges the selection.
 func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socket.WSMessage) {
 	var payload socket.SelectCharPayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -525,35 +513,6 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 				CharacterID:  payload.CharacterID,
 				LastActiveAt: char.LastActiveAt,
 			})
-		}
-
-		// Grant offline gains (idle progression is a domain service). The handler
-		// only turns the result into transport (a WS packet + a domain event).
-		if grant, granted, gerr := p.idle.GrantOffline(context.Background(), payload.CharacterID, char.Stats.BaseStats, char.LastActiveAt); gerr == nil && granted {
-			gainsSummary, _ := json.Marshal(map[string]interface{}{
-				"type": "OFFLINE_GAINS",
-				"payload": map[string]interface{}{
-					"elapsed_seconds": grant.ElapsedSeconds,
-					"gained_gold":     grant.Gold,
-					"gained_exp":      grant.Exp,
-					"leveled_up":      grant.LeveledUp,
-					"new_level":       grant.NewLevel,
-					"loot":            grant.Loot,
-				},
-			})
-			client.Send <- gainsSummary
-
-			if p.eventBus != nil {
-				_ = p.eventBus.Publish(context.Background(), character.OfflineGainsGranted{
-					CharacterID:    payload.CharacterID,
-					ElapsedSeconds: grant.ElapsedSeconds,
-					Gold:           grant.Gold,
-					Exp:            grant.Exp,
-					LeveledUp:      grant.LeveledUp,
-					NewLevel:       grant.NewLevel,
-					Loot:           grant.Loot,
-				})
-			}
 		}
 
 		// Replay the character's history since it was last active so the
@@ -763,6 +722,72 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 			"payload": res,
 		})
 		hub.Broadcast <- broadMsg
+	})
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// idle (standalone event-driven offline progression plugin)
+// ---------------------------------------------------------------------------
+
+type idlePlugin struct{ plugin.Base }
+
+func (idlePlugin) Meta() plugin.Meta {
+	return plugin.Meta{Name: "idle", Requires: []string{"core", "character", "inventory", "loot"}}
+}
+
+func (p *idlePlugin) Init(plugin.InitContext) error { return nil }
+
+func (p *idlePlugin) Start(rc plugin.RunContext) error {
+	reg := rc.Registry()
+	chars := registry.MustResolve[character.CharacterService](reg, "character")
+	lootSvc := registry.MustResolve[loot.LootService](reg, "loot")
+	invSvc := registry.MustResolve[inventory.InventoryService](reg, "inventory")
+	hub := registry.MustResolve[*socket.Hub](reg, "hub")
+
+	idleSvc := idle.NewService(chars, lootSvc, invSvc)
+
+	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
+		e, ok := ev.(character.CharacterLoggedIn)
+		if !ok {
+			return
+		}
+		char, err := chars.GetByID(ctx, e.CharacterID)
+		if err != nil {
+			return
+		}
+		grant, granted, err := idleSvc.GrantOffline(ctx, e.CharacterID, char.Stats.BaseStats, e.LastActiveAt)
+		if err != nil || !granted {
+			return
+		}
+
+		gainsSummary, _ := json.Marshal(map[string]interface{}{
+			"type": "OFFLINE_GAINS",
+			"payload": map[string]interface{}{
+				"elapsed_seconds": grant.ElapsedSeconds,
+				"gained_gold":     grant.Gold,
+				"gained_exp":      grant.Exp,
+				"leveled_up":      grant.LeveledUp,
+				"new_level":       grant.NewLevel,
+				"loot":            grant.Loot,
+			},
+		})
+		if client, exists := hub.GetClientByCharacterID(e.CharacterID); exists {
+			client.Send <- gainsSummary
+		}
+
+		if rc.Bus() != nil {
+			_ = rc.Bus().Publish(ctx, character.OfflineGainsGranted{
+				CharacterID:    e.CharacterID,
+				ElapsedSeconds: grant.ElapsedSeconds,
+				Gold:           grant.Gold,
+				Exp:            grant.Exp,
+				LeveledUp:      grant.LeveledUp,
+				NewLevel:       grant.NewLevel,
+				Loot:           grant.Loot,
+			})
+		}
 	})
 
 	return nil
