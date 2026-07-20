@@ -123,8 +123,22 @@ implements `bus.Event`. Type-assert the payload in your handler.
 [`backend/examples/plugins/xpboost`](../backend/examples/plugins/xpboost/plugin.go)
 is a full, tested reference plugin that uses **every** mechanism: a rewards filter
 (double gold), a pre-attack veto (protect a target), a `MobKilled` subscription,
-an HTTP route, and the lifecycle. Copy it as a starting point. Its test shows how
-to exercise a plugin's `Init` in isolation with a fake `InitContext`.
+an HTTP route, and the lifecycle. Copy it as a starting point.
+
+### Testing your plugin
+
+Use `plugin/plugintest` to run a plugin's `Init` in isolation over real engine
+primitives — no kernel needed (the `net/http/httptest` pattern for plugins):
+
+```go
+h := plugintest.New()
+registry.Provide(h.Registry(), "character", mockCharSvc) // satisfy Requires
+if err := h.Init(&myplugin.Plugin{}); err != nil { t.Fatal(err) }
+
+// Inspect what it registered:
+out := hooks.ApplyFilters(h.Hooks(), ctx, character.HookRewards, character.RewardsFilter{Gold: 100})
+// ... assert out.Gold, publish to h.Bus(), serve h.Mux(), etc.
+```
 
 ---
 
@@ -142,8 +156,9 @@ k.Register(
 k.Run(ctx)
 ```
 
-The kernel orders it after its dependencies automatically. (In-process compiled
-plugins today; a runtime/no-recompile plugin boundary — WASM — is on the roadmap.)
+The kernel orders it after its dependencies automatically. Plugins are **compiled
+in** (statically linked, fully type-safe) — you build zzrpg from source with your
+plugins registered. There is no runtime/drop-in plugin loading by design.
 
 ---
 
