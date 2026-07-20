@@ -17,8 +17,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 // Append writes ev to the outbox using q — which must be the Querier of the

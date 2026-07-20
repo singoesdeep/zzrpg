@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
 )
 
 type mockLootRepository struct {

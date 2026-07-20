@@ -3,8 +3,8 @@ package city
 import (
 	"testing"
 
-	eidle "github.com/singoesdeep/zzrpg/backend/engine/idle"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 func TestBuildingProducer_ScalesWithLevel(t *testing.T) {

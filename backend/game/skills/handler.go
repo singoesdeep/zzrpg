@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 // ListHandler serves the skill catalogue: GET /api/v1/skills.

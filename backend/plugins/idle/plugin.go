@@ -8,10 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/idle"
@@ -19,6 +15,10 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 //go:embed migrations/*.sql

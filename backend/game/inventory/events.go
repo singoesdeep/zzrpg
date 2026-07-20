@@ -1,6 +1,6 @@
 package inventory
 
-import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+import "github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 
 // Event names for inventory changes published on the engine bus.
 const (

@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 // AdminOnly composes JWT auth with an admin-role check for mutating

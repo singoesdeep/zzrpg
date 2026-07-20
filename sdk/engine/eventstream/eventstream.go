@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 )
 
 // DefaultStream is the Redis stream key used when none is given.

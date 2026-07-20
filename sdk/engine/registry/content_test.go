@@ -3,7 +3,7 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 // cardDef is a made-up content type a hypothetical card-game plugin might define

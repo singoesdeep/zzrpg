@@ -9,7 +9,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 // CharacterReader is the slice of the character service the idle handlers need:

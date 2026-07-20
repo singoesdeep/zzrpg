@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/items"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
 )
 
 type mockInventoryRepository struct {

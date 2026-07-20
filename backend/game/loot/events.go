@@ -1,6 +1,6 @@
 package loot
 
-import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+import "github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 
 // EventLootDropped is the bus routing key for LootDropped.
 const EventLootDropped = "loot_dropped"

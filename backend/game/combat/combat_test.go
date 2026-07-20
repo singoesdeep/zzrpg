@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/creature"
 	"github.com/singoesdeep/zzrpg/backend/game/killreward"
 	"github.com/singoesdeep/zzrpg/backend/game/quests"
 	"github.com/singoesdeep/zzrpg/backend/platform/session"
 	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
 )
 
 type mockCharService struct {

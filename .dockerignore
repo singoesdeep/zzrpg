@@ -1,0 +1,13 @@
+# Build context is the repo root (backend + sdk modules).
+**/*.so
+**/*.test
+**/*.log
+**/.env
+**/.env.*
+.git
+.github
+.llmwiki
+docs
+*.md
+**/node_modules
+zzstat

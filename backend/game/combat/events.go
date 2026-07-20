@@ -1,6 +1,6 @@
 package combat
 
-import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+import "github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 
 // Domain event names published on the engine bus when combat resolves. These
 // events are additive: they let consumers (analytics, achievements, aggro/AI,

@@ -13,14 +13,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/pkg/config"
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
-	"github.com/singoesdeep/zzrpg/backend/pkg/metrics"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/config"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/metrics"
 )
 
 // Kernel wires the engine primitives together and runs plugins.

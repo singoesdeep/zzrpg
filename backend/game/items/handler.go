@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 // Response/error envelope types live once in pkg/httpx.

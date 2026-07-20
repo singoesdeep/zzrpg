@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
 )
 
 // fallbackTables is the embedded loot pack used when the DB has no row for a

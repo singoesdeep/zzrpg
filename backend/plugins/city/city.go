@@ -14,9 +14,9 @@ import (
 	"sort"
 	"time"
 
-	eidle "github.com/singoesdeep/zzrpg/backend/engine/idle"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 // ContentKind is this game's own content type, registered generically.

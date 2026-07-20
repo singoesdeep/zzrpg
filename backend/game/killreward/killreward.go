@@ -3,10 +3,10 @@ package killreward
 import (
 	"context"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/game/creature"
 	"github.com/singoesdeep/zzrpg/backend/game/inventory"
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
 )
 
 // CreatureResolver resolves a creature ID to a Creature model containing stats

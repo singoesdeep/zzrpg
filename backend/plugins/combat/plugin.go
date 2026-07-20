@@ -4,10 +4,6 @@ import (
 	"encoding/json"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/combat"
@@ -19,6 +15,10 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/platform/session"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
 	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 type skillResolver struct{ svc *skills.Service }

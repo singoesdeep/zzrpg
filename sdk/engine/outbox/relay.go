@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 // Relay dispatches undispatched outbox rows onto the bus after commit. It is the

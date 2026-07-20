@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 // RefreshStore persists refresh tokens by hash so sessions are revocable and

@@ -3,7 +3,7 @@ package admin_test
 import (
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
 )
 
 func TestStateManager_ToggleAndList(t *testing.T) {

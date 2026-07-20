@@ -13,9 +13,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 // CharacterStream is the stream key for a character's event history.

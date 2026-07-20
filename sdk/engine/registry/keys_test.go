@@ -3,7 +3,7 @@ package registry_test
 import (
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 )
 
 type greeter interface{ Greet() string }

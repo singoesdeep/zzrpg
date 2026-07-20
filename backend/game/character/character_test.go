@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
 )
 
 // mockStat stands in for the zzstat client in unit tests, computing derived stats

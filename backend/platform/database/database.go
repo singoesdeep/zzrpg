@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
-	"github.com/singoesdeep/zzrpg/backend/pkg/config"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/config"
 )
 
 type DB struct {

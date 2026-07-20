@@ -3,15 +3,15 @@ package loot
 import (
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
-	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	authplugin "github.com/singoesdeep/zzrpg/backend/plugins/auth"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/cache"
 )
 
 type Plugin struct{ plugin.Base }

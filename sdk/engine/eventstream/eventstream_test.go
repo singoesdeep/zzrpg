@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 )
 
 type streamTestEvent struct{ V int }

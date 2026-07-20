@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
-	eidle "github.com/singoesdeep/zzrpg/backend/engine/idle"
 	"github.com/singoesdeep/zzrpg/backend/game/inventory"
 	"github.com/singoesdeep/zzrpg/backend/game/loot"
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
 )
 
 // CharacterRewarder credits/debits a character's gold and exp.

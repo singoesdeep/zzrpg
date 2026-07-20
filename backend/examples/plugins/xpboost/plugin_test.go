@@ -6,10 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin/plugintest"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/combat"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin/plugintest"
 )
 
 // TestXPBoostPluginExtensions drives the plugin's Init through the plugintest

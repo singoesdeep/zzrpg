@@ -2,7 +2,7 @@ package idle
 
 import (
 	"github.com/singoesdeep/zzrpg/backend/content"
-	eidle "github.com/singoesdeep/zzrpg/backend/engine/idle"
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
 )
 
 // State variable names read by the producers.

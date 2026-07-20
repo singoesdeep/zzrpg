@@ -8,8 +8,9 @@
 # depends on (keep ZZSTAT_REF in sync with backend/go.mod). Stage 2 builds the
 # static Go binary. The final image carries just the binary + the .so.
 #
-# Build context is the backend/ module directory:
-#   docker build -f backend/Dockerfile -t zzrpg:latest backend
+# Build context is the REPO ROOT (the backend module depends on the sibling
+# ./sdk module via a replace directive, so both must be in the context):
+#   docker build -f backend/Dockerfile -t zzrpg:latest .
 
 # ── Stage 1: build the Rust zzstat FFI shared library ──────────────────────────
 FROM rust:1-slim-bookworm AS zzstat
@@ -26,11 +27,13 @@ RUN cargo build --release -p zzstat-ffi
 
 # ── Stage 2: build the Go server ───────────────────────────────────────────────
 FROM golang:1.26-bookworm AS build
-WORKDIR /app
-# Cache dependencies first.
-COPY go.mod go.sum ./
+WORKDIR /src
+# Both modules: backend resolves the reusable engine SDK via `replace => ../sdk`,
+# so the sibling sdk/ must sit next to backend/ in the build tree.
+COPY sdk/ ./sdk/
+COPY backend/ ./backend/
+WORKDIR /src/backend
 RUN go mod download
-COPY . .
 # purego means no cgo; produce a small, reproducible static binary.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/zzrpg ./cmd/server
 

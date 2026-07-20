@@ -13,9 +13,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/kernel"
-	"github.com/singoesdeep/zzrpg/backend/pkg/config"
-	"github.com/singoesdeep/zzrpg/backend/pkg/logger"
+	"github.com/singoesdeep/zzrpg/sdk/engine/kernel"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/config"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/logger"
 
 	"github.com/singoesdeep/zzrpg/backend/plugins/city"
 	"github.com/singoesdeep/zzrpg/backend/plugins/core"

@@ -8,9 +8,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/singoesdeep/zzrpg/backend/engine/eventlog"
-	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/eventlog"
+	"github.com/singoesdeep/zzrpg/sdk/engine/outbox"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 type pgCharacterRepository struct {

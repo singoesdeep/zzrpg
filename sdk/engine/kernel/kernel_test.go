@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/pkg/config"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/config"
 )
 
 // recorder is shared across fake plugins to capture lifecycle call order.

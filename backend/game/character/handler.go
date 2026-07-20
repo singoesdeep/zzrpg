@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 type createCharacterRequest struct {

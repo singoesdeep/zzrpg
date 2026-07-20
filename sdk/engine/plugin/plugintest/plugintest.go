@@ -17,11 +17,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/bus"
-	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/pkg/config"
+	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/config"
 )
 
 // Harness satisfies both engine contexts.

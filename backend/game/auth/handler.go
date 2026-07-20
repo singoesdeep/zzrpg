@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 type registerRequest struct {

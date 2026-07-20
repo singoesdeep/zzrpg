@@ -3,7 +3,7 @@ package idle_test
 import (
 	"testing"
 
-	eidle "github.com/singoesdeep/zzrpg/backend/engine/idle"
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
 )
 
 func TestWindow(t *testing.T) {

@@ -6,11 +6,11 @@ import (
 	"io/fs"
 	"net/http"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/admin"
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
-	"github.com/singoesdeep/zzrpg/backend/engine/registry"
-	"github.com/singoesdeep/zzrpg/backend/pkg/httpx"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
+	"github.com/singoesdeep/zzrpg/sdk/engine/admin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
 //go:embed content/buildings.json

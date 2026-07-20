@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/cache"
 )
 
 // cachedRepository is a read-through cache decorator over a LootRepository.

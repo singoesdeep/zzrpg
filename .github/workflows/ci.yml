@@ -38,25 +38,28 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: |
+            sdk/go.sum
+            backend/go.sum
 
-      - name: go build
-        working-directory: backend
-        run: go build ./...
+      # ── SDK module (engine + pkg), standalone — needs no zzstat ──
+      - name: sdk build/vet/gofmt/test
+        working-directory: sdk
+        run: |
+          go build ./...
+          go vet ./...
+          unformatted="$(gofmt -l .)"; [ -z "$unformatted" ] || { echo "not gofmt-clean:"; echo "$unformatted"; exit 1; }
+          go test -race ./...
 
-      - name: go vet
-        working-directory: backend
-        run: go vet ./...
-
-      - name: gofmt check
+      # ── Backend module (game + plugins), depends on ../sdk ──
+      - name: backend build/vet/gofmt
         working-directory: backend
         run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
-          fi
+          go build ./...
+          go vet ./...
+          unformatted="$(gofmt -l .)"; [ -z "$unformatted" ] || { echo "not gofmt-clean:"; echo "$unformatted"; exit 1; }
 
-      - name: go test (race)
+      - name: backend test (race)
         working-directory: backend
         env:
           ZZSTAT_LIB_PATH: ${{ github.workspace }}/zzstat/target/release/libzzstat_ffi.so
@@ -75,7 +78,7 @@ jobs:
       - name: Build image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: backend
+          context: .
           file: backend/Dockerfile
           push: false
           build-args: |

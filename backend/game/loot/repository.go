@@ -6,7 +6,7 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/singoesdeep/zzrpg/backend/engine/store"
+	"github.com/singoesdeep/zzrpg/sdk/engine/store"
 )
 
 type pgLootRepository struct {

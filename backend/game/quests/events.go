@@ -1,6 +1,6 @@
 package quests
 
-import "github.com/singoesdeep/zzrpg/backend/engine/outbox"
+import "github.com/singoesdeep/zzrpg/sdk/engine/outbox"
 
 // Domain event names published on the engine bus for quest lifecycle changes.
 // Additive: emitting them does not change the service's synchronous behaviour
