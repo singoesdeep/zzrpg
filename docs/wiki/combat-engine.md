@@ -1,13 +1,13 @@
-<!-- sha: f8a0141367af565bee288f8f7e7d34bf95cd961b -->
+<!-- sha: 14a1d69c4cb1ed59b617a5b187e4ab773604204d -->
 # ⚔️ Combat Engine & Stat Core
 
 The combat engine is driven by the `combat` plugin ([backend/plugins/combat/plugin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/combat/plugin.go)) and relies on embedded CGo FFI bindings to the Rust `zzstat` high-performance stat calculation engine.
 
 ## 1. High-Performance Rust FFI (`zzstat`)
 
-Attribute evaluation (Strength, Agility, Intelligence -> Base HP/MP, Damage, Defense, Critical Multipliers) is performed via CGo calling Rust `libzzstat_ffi.so` ([backend/internal/statclient/client.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/internal/statclient/client.go#L1-L60)).
+Attribute evaluation (Strength, Agility, Intelligence -> Base HP/MP, Damage, Defense, Critical Multipliers) is performed via CGo calling Rust `libzzstat_ffi.so` ([backend/platform/statclient/client.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/platform/statclient/client.go#L1-L60)).
 
-- **StatHolder Seam:** Wraps `statclient.Client` interface to avoid registry type assertion ambiguity ([backend/internal/statclient/client.go#L40-L60](file:///home/singo/github.com/singoesdeep/zzrpg/backend/internal/statclient/client.go#L40-L60)).
+- **StatHolder Seam:** Wraps `statclient.Client` interface to avoid registry type assertion ambiguity ([backend/platform/statclient/client.go#L40-L60](file:///home/singo/github.com/singoesdeep/zzrpg/backend/platform/statclient/client.go#L40-L60)).
 
 ## 2. Creature Resolver & Mob Spawns
 
@@ -28,4 +28,4 @@ Combat supports both **Player vs Player (PvP)** and **Player vs Environment (PvE
 
 - Combat Plugin & WebSocket Handler: [plugins/combat/plugin.go:L1-L100](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/combat/plugin.go#L1-L100)
 - Creature Resolvers: [plugins/combat/creatures.go:L1-L45](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/combat/creatures.go#L1-L45)
-- StatClient FFI Binding: [statclient/client.go:L1-L60](file:///home/singo/github.com/singoesdeep/zzrpg/backend/internal/statclient/client.go#L1-L60)
+- StatClient FFI Binding: [statclient/client.go:L1-L60](file:///home/singo/github.com/singoesdeep/zzrpg/backend/platform/statclient/client.go#L1-L60)

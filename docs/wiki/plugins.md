@@ -1,7 +1,7 @@
-<!-- sha: f8a0141367af565bee288f8f7e7d34bf95cd961b -->
+<!-- sha: 14a1d69c4cb1ed59b617a5b187e4ab773604204d -->
 # 🧩 Plugin Subsystem & Extensibility
 
-`zzrpg` follows a WordPress-style modular plugin architecture in Go. All game features (Auth, Character, Combat, Inventory, Items, Loot, Quests, Idle Gains) live as standalone packages under `backend/plugins/`.
+`zzrpg` follows a WordPress-style modular plugin architecture in Go. Plugins are thin **composition adapters** under `backend/plugins/`: each wires a game domain (from `backend/game/`) to shared infrastructure (`backend/platform/`) and the engine (`backend/engine/`). Domain logic lives in `backend/game/<domain>/`; the plugin only assembles it. See [Architecture](architecture.md) for the four-layer structure.
 
 ## 1. Plugin Interface Contract
 
@@ -16,13 +16,13 @@ type Plugin interface {
 }
 ```
 
-## 2. Dynamic Admin View Extension (`AdminDescribor`)
+## 2. Dynamic Admin View Extension (`admin.Describor`)
 
-Plugins optionally implement `plugin.AdminDescribor` ([backend/engine/plugin/plugin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/plugin/plugin.go#L100-L105)) to register UI metadata (Title, Description, Icon, Category, Endpoints) rendered in the Web Admin Dashboard (`/admin`):
+Presentation is separated from the plugin lifecycle: the `engine/plugin` package defines only what a plugin *is*, while `engine/admin` defines how it is *presented and toggled*. Plugins optionally implement `admin.Describor` ([backend/engine/admin/admin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/admin/admin.go#L33-L36)) to register UI metadata (Title, Description, Icon, Category, Endpoints) rendered in the Web Admin Dashboard (`/admin`):
 
 ```go
-func (Plugin) AdminInfo() plugin.AdminInfo {
-    return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+    return admin.Info{
         Title:       "Idle Progression",
         Description: "Standalone event-driven offline progression plugin",
         Icon:        "fa-moon",
@@ -32,9 +32,15 @@ func (Plugin) AdminInfo() plugin.AdminInfo {
 }
 ```
 
-## 3. Runtime State Management (`StateManager`)
+## 3. Runtime Activation & the Engine Gate (`admin.StateManager`)
 
-The `StateManager` ([backend/engine/plugin/plugin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/plugin/plugin.go#L108-L163)) allows administrators to activate or deactivate plugins dynamically via `POST /api/v1/admin/plugins/{name}/toggle` without restarting the server process.
+The `admin.StateManager` ([backend/engine/admin/admin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/admin/admin.go#L50-L109)) is the single source of truth for plugin activation. Administrators toggle a plugin via `POST /api/v1/admin/plugins/{name}/toggle` at runtime, without restarting the process.
+
+Deactivation is enforced **uniformly at the engine level** — no plugin has to check its own state. The kernel hands every plugin a *plugin-scoped* `InitContext`/`RunContext` ([backend/engine/kernel/kernel.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/kernel/kernel.go#L174-L220)) whose:
+
+- **`Mux()`** returns a gated `plugin.Router` that answers **HTTP 503** for a deactivated plugin's routes.
+- **`Bus()`** returns a gated `EventBus` that suppresses the plugin's subscriptions (Publish still passes through).
+- WebSocket message types registered via `MessageRouter.HandleOwned` ([backend/platform/socket/router.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/platform/socket/router.go)) are skipped by `Dispatch` while the owning plugin is deactivated (gate wired from the StateManager in the core plugin).
 
 ```mermaid
 sequenceDiagram
@@ -42,21 +48,23 @@ sequenceDiagram
     actor Admin
     participant UI as Web Admin Dashboard
     participant API as REST Router (/api/v1/admin/plugins)
-    participant SM as StateManager
-    participant Sub as Event Subscriber (e.g. idle)
+    participant SM as admin.StateManager
+    participant Gate as Engine Gate (scoped ctx / WS router)
 
-    Admin->>UI: Click "Deactivate" on Idle Plugin
-    UI->>API: POST /api/v1/admin/plugins/idle/toggle
-    API->>SM: Toggle("idle") -> Status: DISABLED
+    Admin->>UI: Click "Deactivate" on Combat Plugin
+    UI->>API: POST /api/v1/admin/plugins/combat/toggle
+    API->>SM: Toggle("combat") -> Status: DISABLED
     SM-->>API: Status: DISABLED
     API-->>UI: 200 OK (Status: DISABLED)
-    Note over Sub: Character Logged In Event Fired
-    Sub->>SM: IsActive("idle")? -> false
-    Sub-->>Sub: Abort offline gains calculation
+    Note over Gate: Live COMBAT_ATTACK frame / HTTP route / event arrives
+    Gate->>SM: IsActive("combat")? -> false
+    Gate-->>Gate: WS frame skipped · HTTP 503 · subscription suppressed
 ```
 
 ## 4. Grounding & Code References
 
-- Plugin Contract & StateManager: [plugin.go:L28-L163](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/plugin/plugin.go#L28-L163)
-- Standalone Plugin Packages: [backend/plugins/](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/)
+- Plugin Contract: [plugin.go:L28-L91](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/plugin/plugin.go#L28-L91)
+- Admin Contract & StateManager: [engine/admin/admin.go](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/admin/admin.go)
+- Engine Activation Gate: [kernel.go:L174-L260](file:///home/singo/github.com/singoesdeep/zzrpg/backend/engine/kernel/kernel.go#L174-L260)
+- Composition Adapters: [backend/plugins/](file:///home/singo/github.com/singoesdeep/zzrpg/backend/plugins/)
 - Plugin Author Guide: [docs/PLUGIN_GUIDE.md](file:///home/singo/github.com/singoesdeep/zzrpg/docs/PLUGIN_GUIDE.md)

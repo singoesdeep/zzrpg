@@ -1,7 +1,20 @@
-<!-- sha: f8a0141367af565bee288f8f7e7d34bf95cd961b -->
+<!-- sha: 14a1d69c4cb1ed59b617a5b187e4ab773604204d -->
 # 🏛️ Core Architecture & Kernel Substrate
 
 The `zzrpg` engine kernel is a **domain-agnostic, plugin-first backend substrate**. It contains zero RPG concepts (no "character", "quest", "mob", or "gold") and serves as the execution lifecycle container for game plugins.
+
+## 0. Four-Layer Repository Structure
+
+The codebase is split into four layers with a strict dependency direction (each layer may depend only on layers above it):
+
+| Layer | Path | Contents | Imports domains? |
+|---|---|---|---|
+| **Engine** | `backend/engine/` | Game-agnostic core: kernel, DI registry, event `bus`, `hooks`, `outbox`, and the `admin` presentation/activation contract | No |
+| **Platform** | `backend/platform/` | Domain-free infrastructure: `socket` (WebSocket transport), `session`, `statclient` (Rust FFI), `database` | No |
+| **Game** | `backend/game/` | The sample RPG's domains: `auth`, `character`, `combat`, `creature`, `idle`, `inventory`, `items`, `killreward`, `loot`, `quests`, `skills` | — |
+| **Plugins** | `backend/plugins/` | Composition adapters that wire game + platform into the engine's plugin lifecycle | resolves via registry |
+
+Domain logic deliberately no longer lives under `internal/`, so the engine and platform layers can be reused to build a different game by swapping out `game/` and `plugins/`. The transport (`platform/socket`) imports **zero** domain packages — authentication is injected via an `Authenticator`, and disconnects are surfaced through a `SetLogoutHandler` callback rather than the hub publishing a domain event.
 
 ## 1. Engine Kernel Components
 
