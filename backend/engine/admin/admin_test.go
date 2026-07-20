@@ -1,19 +1,19 @@
-package plugin_test
+package admin_test
 
 import (
 	"testing"
 
-	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 )
 
 func TestStateManager_ToggleAndList(t *testing.T) {
-	catalog := []plugin.PluginInfo{
-		{Name: "core", Status: "ACTIVE"},
-		{Name: "character", Status: "ACTIVE"},
-		{Name: "idle", Status: "ACTIVE"},
+	catalog := []admin.PluginState{
+		{Name: "core", Status: admin.StatusActive},
+		{Name: "character", Status: admin.StatusActive},
+		{Name: "idle", Status: admin.StatusActive},
 	}
 
-	sm := plugin.NewStateManager(catalog)
+	sm := admin.NewStateManager(catalog)
 
 	if !sm.IsActive("idle") {
 		t.Fatalf("expected idle to be ACTIVE initially")
@@ -24,7 +24,7 @@ func TestStateManager_ToggleAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error toggling idle: %v", err)
 	}
-	if status != "DISABLED" {
+	if status != admin.StatusDisabled {
 		t.Fatalf("expected status DISABLED, got %s", status)
 	}
 	if sm.IsActive("idle") {
@@ -39,7 +39,7 @@ func TestStateManager_ToggleAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error toggling idle back on: %v", err)
 	}
-	if status != "ACTIVE" {
+	if status != admin.StatusActive {
 		t.Fatalf("expected status ACTIVE, got %s", status)
 	}
 	if !sm.IsActive("idle") {
@@ -47,8 +47,13 @@ func TestStateManager_ToggleAndList(t *testing.T) {
 	}
 
 	// 3. Prevent core from being disabled
-	_, err = sm.Toggle("core")
-	if err == nil {
+	if _, err = sm.Toggle("core"); err == nil {
 		t.Fatalf("expected error when trying to disable core plugin")
+	}
+
+	// 4. List preserves registration order
+	list := sm.List()
+	if len(list) != 3 || list[0].Name != "core" || list[1].Name != "character" || list[2].Name != "idle" {
+		t.Fatalf("expected stable registration order, got %+v", list)
 	}
 }

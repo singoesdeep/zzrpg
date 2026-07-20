@@ -1,6 +1,7 @@
 package quests
 
 import (
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
@@ -13,8 +14,8 @@ import (
 
 type Plugin struct{ plugin.Base }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Quest System",
 		Description: "Multi-step quest chains, objective progress tracking, and reward distribution",
 		Icon:        "fa-scroll",

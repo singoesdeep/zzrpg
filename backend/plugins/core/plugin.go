@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/eventstream"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
@@ -67,8 +68,8 @@ func NewPlugin() *Plugin {
 	return &Plugin{}
 }
 
-func (p *Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (p *Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Core Infrastructure",
 		Description: "Engine substrate providing DB pool, Redis cache, WebSockets, outbox relay & event streams",
 		Icon:        "fa-server",
@@ -268,7 +269,7 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registr
 
 	mux.HandleFunc("GET /api/v1/admin/plugins", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager")
+		mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin manager"})
@@ -283,7 +284,7 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registr
 	mux.HandleFunc("POST /api/v1/admin/plugins/{name}/toggle", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		name := r.PathValue("name")
-		mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager")
+		mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin manager"})

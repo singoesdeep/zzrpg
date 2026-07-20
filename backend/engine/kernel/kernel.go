@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
@@ -78,23 +79,21 @@ func (k *Kernel) Run(ctx context.Context) error {
 		return err
 	}
 
-	var catalog []plugin.PluginInfo
+	var catalog []admin.PluginState
 	for _, p := range ordered {
-		info := plugin.PluginInfo{
+		info := admin.PluginState{
 			Name:     p.Meta().Name,
 			Requires: p.Meta().Requires,
-			Status:   "ACTIVE",
+			Status:   admin.StatusActive,
 		}
-		if desc, ok := p.(plugin.AdminDescribor); ok {
+		if desc, ok := p.(admin.Describor); ok {
 			adm := desc.AdminInfo()
 			info.Admin = &adm
 		}
 		catalog = append(catalog, info)
 	}
-	mgr := plugin.NewStateManager(catalog)
-	if err := registry.Provide(k.reg, "pluginCatalog", catalog); err != nil {
-		return err
-	}
+	// StateManager is the single source of truth for plugin activation state.
+	mgr := admin.NewStateManager(catalog)
 	if err := registry.Provide(k.reg, "pluginManager", mgr); err != nil {
 		return err
 	}

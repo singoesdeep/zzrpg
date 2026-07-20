@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/eventlog"
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
@@ -29,8 +30,8 @@ type Plugin struct {
 	decoders    *outbox.Registry
 }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Character System",
 		Description: "Character progression, stat calculations, level ups, and active session tracking",
 		Icon:        "fa-user-ninja",

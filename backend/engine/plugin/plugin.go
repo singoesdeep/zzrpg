@@ -8,10 +8,8 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
@@ -80,85 +78,3 @@ type Base struct{}
 
 func (Base) Start(RunContext) error     { return nil }
 func (Base) Stop(context.Context) error { return nil }
-
-// AdminInfo describes a plugin's administrative UI presentation.
-type AdminInfo struct {
-	Title       string   `json:"title"`
-	Description string   `json:"description"`
-	Icon        string   `json:"icon"`        // FontAwesome icon e.g. "fa-shield-halved"
-	Category    string   `json:"category"`    // e.g. "Core", "Gameplay", "Economy", "Security"
-	Endpoints   []string `json:"endpoints,omitempty"`
-}
-
-// PluginInfo combines a plugin's runtime status and administrative metadata for
-// rendering in the Admin Dashboard.
-type PluginInfo struct {
-	Name     string     `json:"name"`
-	Requires []string   `json:"requires"`
-	Status   string     `json:"status"`
-	Admin    *AdminInfo `json:"admin,omitempty"`
-}
-
-// AdminDescribor is an optional interface plugins can implement to expose
-// administrative details to the Admin Dashboard.
-type AdminDescribor interface {
-	AdminInfo() AdminInfo
-}
-
-// StateManager tracks and toggles runtime activation/deactivation states of registered plugins.
-type StateManager struct {
-	mu     sync.RWMutex
-	states map[string]*PluginInfo
-}
-
-// NewStateManager initializes a StateManager with the given plugin catalog.
-func NewStateManager(catalog []PluginInfo) *StateManager {
-	sm := &StateManager{
-		states: make(map[string]*PluginInfo, len(catalog)),
-	}
-	for _, item := range catalog {
-		cp := item
-		sm.states[cp.Name] = &cp
-	}
-	return sm
-}
-
-// List returns a snapshot of all registered plugins and their current status.
-func (sm *StateManager) List() []PluginInfo {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	res := make([]PluginInfo, 0, len(sm.states))
-	for _, s := range sm.states {
-		res = append(res, *s)
-	}
-	return res
-}
-
-// IsActive checks if a plugin is currently enabled/active.
-func (sm *StateManager) IsActive(name string) bool {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
-	if s, ok := sm.states[name]; ok {
-		return s.Status == "ACTIVE"
-	}
-	return true
-}
-
-// Toggle flips a plugin's status between ACTIVE and DISABLED.
-func (sm *StateManager) Toggle(name string) (string, error) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	s, ok := sm.states[name]
-	if !ok {
-		return "", fmt.Errorf("plugin %q not found", name)
-	}
-	if name == "core" {
-		return "", fmt.Errorf("core plugin cannot be disabled")
-	}
-	if s.Status == "ACTIVE" {
-		s.Status = "DISABLED"
-	} else {
-		s.Status = "ACTIVE"
-	}
-	return s.Status, nil
-}

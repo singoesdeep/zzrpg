@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
@@ -37,8 +38,8 @@ func (a skillResolver) Resolve(id string) (combat.SkillEffect, bool) {
 
 type Plugin struct{ plugin.Base }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Combat Engine",
 		Description: "Damage resolution via Rust zzstat FFI, mob/player targeting, and skill execution",
 		Icon:        "fa-khanda",

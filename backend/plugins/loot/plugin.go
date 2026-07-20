@@ -3,19 +3,20 @@ package loot
 import (
 	"time"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
-	authplugin "github.com/singoesdeep/zzrpg/backend/plugins/auth"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
+	authplugin "github.com/singoesdeep/zzrpg/backend/plugins/auth"
 )
 
 type Plugin struct{ plugin.Base }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Loot Tables",
 		Description: "Probability-based loot tables and item drop roll engines",
 		Icon:        "fa-coins",

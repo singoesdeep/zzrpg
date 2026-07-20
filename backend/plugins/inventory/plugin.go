@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
@@ -12,8 +13,8 @@ import (
 
 type Plugin struct{ plugin.Base }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Inventory & Storage",
 		Description: "Slot-based inventory, equipment equipping/unequipping, and stat recalculation triggers",
 		Icon:        "fa-boxes-stacked",

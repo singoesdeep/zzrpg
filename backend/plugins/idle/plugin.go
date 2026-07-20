@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
@@ -16,8 +17,8 @@ import (
 
 type Plugin struct{ plugin.Base }
 
-func (Plugin) AdminInfo() plugin.AdminInfo {
-	return plugin.AdminInfo{
+func (Plugin) AdminInfo() admin.Info {
+	return admin.Info{
 		Title:       "Idle Progression",
 		Description: "Standalone event-driven offline progression calculating STR/INT scaled gold, exp, and loot",
 		Icon:        "fa-moon",
@@ -42,7 +43,7 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 	idleSvc := idle.NewService(chars, lootSvc, invSvc)
 
 	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
-		if mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager"); err == nil && !mgr.IsActive("idle") {
+		if mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager"); err == nil && !mgr.IsActive("idle") {
 			return
 		}
 
