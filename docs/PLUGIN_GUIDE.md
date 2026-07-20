@@ -165,15 +165,16 @@ in `Meta().Requires`:
 ```go
 k := kernel.New(cfg, log)
 k.Register(
-    &corePlugin{}, authPlugin{}, /* … built-ins … */
-    &xpboost.Plugin{ProtectedID: 1}, // your plugin
+    &corePlugin{}, authPlugin{}, itemsPlugin{},
+    &characterPlugin{}, inventoryPlugin{}, lootPlugin{},
+    questsPlugin{}, combatPlugin{},
+    &idlePlugin{},                    // built-in standalone idle gains
+    &xpboost.Plugin{ProtectedID: 1}, // your custom plugin
 )
 k.Run(ctx)
 ```
 
-The kernel orders it after its dependencies automatically. Plugins are **compiled
-in** (statically linked, fully type-safe) — you build zzrpg from source with your
-plugins registered. There is no runtime/drop-in plugin loading by design.
+The kernel orders plugins after their declared dependencies automatically (`Meta().Requires`). Because plugins communicate asynchronously via the event bus and synchronously via hooks, omitting a plugin (e.g. omitting `&idlePlugin{}` for an RTS or non-idle game) leaves the rest of the engine running seamlessly. Plugins are **compiled-in** (statically linked, fully type-safe) when building the server.
 
 ---
 

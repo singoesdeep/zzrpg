@@ -55,19 +55,21 @@ gateway.
 
 ```
 backend/
-├── cmd/server/        # main.go (kernel wiring) + plugins.go (the 8 domain plugins)
+├── cmd/server/        # main.go (kernel wiring) + plugins.go (the 9 standalone domain plugins)
 ├── engine/            # game-agnostic engine core (zero RPG concepts)
 │   ├── kernel/        # lifecycle: topo-sorted Init/Start/Stop, HTTP server, shutdown
 │   ├── plugin/        # Plugin contract + Init/Run contexts
 │   ├── registry/      # typed dependency-injection registry
 │   ├── bus/           # typed event bus + Fanout (cross-node broadcast)
+│   ├── hooks/         # synchronous hook pipeline (filters & veto actions)
 │   ├── store/         # Store/UnitOfWork (Querier + WithinTx) persistence seam over pgx
 │   ├── outbox/        # transactional outbox: Append (in-tx) + Relay (dispatch)
 │   ├── eventstream/   # Redis-Streams cross-node event fan-out
 │   └── eventlog/      # append-only per-stream history + replay
-├── internal/          # game domains
+├── internal/          # game domain implementations
 │   ├── auth/          # register/login, JWT, refresh-token rotation, brute-force guard
-│   ├── character/     # stats, leveling, offline gains, progression events
+│   ├── character/     # stats, leveling, progression events
+│   ├── idle/          # offline progression domain service (consumed by idlePlugin)
 │   ├── combat/        # data-driven damage (via zzstat), exactly-once kills, events
 │   ├── inventory/     # slots, equip→recalc, per-character locks
 │   ├── items/ loot/   # item definitions, probability loot tables
@@ -85,22 +87,14 @@ backend/
 
 ## Highlights
 
-1. **Kernel + declarative plugins** — `main.go` is ~50 lines; domains register as
-   plugins with declared `Requires` dependencies.
-2. **Data-driven everything** — class base stats, derived-stat coefficients, mob
-   definitions, the combat damage formula, idle/offline economy, and loot fallback
-   tables are all JSON.
-3. **Embedded Rust stat core** — HP/MP/ATTACK/DEFENSE/CRIT_RATE and combat rolls
-   (accuracy, crit, ±variance) are computed in-process from JSON formulas.
-4. **Event catalog + multi-node fan-out** — combat/character/quest/inventory/loot
-   events on a typed bus, broadcast across nodes over Redis Streams.
-5. **Transactional outbox + event_log replay** — reward events are atomic with
-   their write and replayable for reconnect catch-up.
+1. **Domain-Agnostic Kernel + Plug-and-Play Plugins** — `backend/engine` has zero RPG concepts. Domains (`character`, `inventory`, `idle`, `combat`, `quests`) register as independent plugins with declared `Requires` dependencies. Omit or drop in a plugin (e.g. `idlePlugin`) without touching core or other plugins.
+2. **Data-driven everything** — class base stats, derived-stat coefficients, mob definitions, the combat damage formula, idle/offline economy, and loot fallback tables are all JSON.
+3. **Embedded Rust stat core** — HP/MP/ATTACK/DEFENSE/CRIT_RATE and combat rolls (accuracy, crit, ±variance) are computed in-process from JSON formulas via `zzstat`.
+4. **Event catalog + multi-node fan-out** — combat/character/quest/inventory/loot events on a typed bus, broadcast across nodes over Redis Streams.
+5. **Transactional outbox + event_log replay** — reward events are atomic with their write and replayable for reconnect catch-up.
 6. **Real-time WebSockets** — session registry, chat, combat broadcasts.
-7. **Idle progression** — STR/INT-scaled offline gold/exp and offline loot rolls
-   (tunable in `content/idle/offline.json`).
-8. **Production hardening** — rate limiting, security headers, request-id,
-   Prometheus metrics, readiness probe, brute-force protection, refresh tokens.
+7. **Standalone Idle progression** — `idlePlugin` reacts asynchronously to `CharacterLoggedIn` events to compute STR/INT-scaled offline gold/exp and loot rolls (tunable in `content/idle/offline.json`) with zero coupling in `characterPlugin`.
+8. **Production hardening** — rate limiting, security headers, request-id, Prometheus metrics, readiness probe, brute-force protection, refresh tokens.
 
 ---
 

@@ -18,7 +18,7 @@ graph TD
         HTTP[HTTP chain: recover / request-id / log / secure / rate-limit / metrics]
     end
 
-    subgraph Plugins["Domain Plugins"]
+    subgraph Plugins["Domain Plugins (Plug-and-Play)"]
         Core[core: db, cache, hub, router, outbox relay, metrics]
         Auth[auth]
         Char[character]
@@ -27,6 +27,7 @@ graph TD
         Quest[quests]
         Combat[combat]
         Items[items]
+        Idle[idle: standalone offline progression]
     end
 
     subgraph EnginePkgs["Engine Packages"]

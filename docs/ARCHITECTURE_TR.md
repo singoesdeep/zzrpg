@@ -19,7 +19,7 @@ graph TD
         HTTP[HTTP zinciri: recover / request-id / log / secure / rate-limit / metrics]
     end
 
-    subgraph Plugins["Domain Plugin'leri"]
+    subgraph Plugins["Domain Plugin'leri (Tak-Çıkar Eklentiler)"]
         Core[core: db, cache, hub, router, outbox relay, metrics]
         Auth[auth]
         Char[character]
@@ -28,6 +28,7 @@ graph TD
         Quest[quests]
         Combat[combat]
         Items[items]
+        Idle[idle: bağımsız offline progression]
     end
 
     subgraph EnginePkgs["Motor Paketleri"]
