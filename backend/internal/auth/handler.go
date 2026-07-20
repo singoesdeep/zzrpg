@@ -85,7 +85,7 @@ func LoginHandler(service AuthService) http.HandlerFunc {
 			return
 		}
 
-		token, err := service.Login(r.Context(), req.Username, req.Password)
+		pair, err := service.Login(r.Context(), req.Username, req.Password)
 		if err != nil {
 			if errors.Is(err, ErrInvalidCredentials) {
 				writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", err.Error())
@@ -103,11 +103,70 @@ func LoginHandler(service AuthService) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(apiResponse{
 			Success: true,
-			Data: map[string]interface{}{
-				"token":      token,
-				"expires_in": 86400, // 24 hours in seconds
-			},
+			Data:    tokenData(pair),
 		})
+	}
+}
+
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// RefreshHandler exchanges a valid refresh token for a new token pair (rotating
+// the refresh token). POST body: {"refresh_token": "..."}.
+func RefreshHandler(service AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+		var req refreshRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "refresh_token is required")
+			return
+		}
+		pair, err := service.Refresh(r.Context(), req.RefreshToken)
+		if err != nil {
+			if errors.Is(err, ErrInvalidRefreshToken) {
+				writeError(w, http.StatusUnauthorized, "INVALID_REFRESH_TOKEN", err.Error())
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Refresh failed")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(apiResponse{Success: true, Data: tokenData(pair)})
+	}
+}
+
+// LogoutHandler revokes a refresh token. POST body: {"refresh_token": "..."}.
+func LogoutHandler(service AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+			return
+		}
+		var req refreshRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+			writeError(w, http.StatusBadRequest, "INVALID_REQUEST_BODY", "refresh_token is required")
+			return
+		}
+		if err := service.Logout(r.Context(), req.RefreshToken); err != nil {
+			writeError(w, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "Logout failed")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(apiResponse{Success: true, Data: map[string]interface{}{"revoked": true}})
+	}
+}
+
+func tokenData(pair *TokenPair) map[string]interface{} {
+	return map[string]interface{}{
+		"token":         pair.AccessToken,
+		"refresh_token": pair.RefreshToken,
+		"expires_in":    pair.ExpiresIn,
 	}
 }
 

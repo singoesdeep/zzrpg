@@ -26,6 +26,10 @@ type Config struct {
 	// OutboxRetention is how long dispatched (published) outbox rows are kept
 	// before the relay prunes them. <=0 disables pruning.
 	OutboxRetention time.Duration
+
+	// Token lifetimes.
+	AccessTokenTTL  time.Duration // short-lived JWT access token
+	RefreshTokenTTL time.Duration // long-lived, rotating refresh token
 }
 
 func LoadConfig() (*Config, error) {
@@ -44,6 +48,9 @@ func LoadConfig() (*Config, error) {
 		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 40),
 		MaxBodyBytes:    int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
 		OutboxRetention: getEnvDuration("OUTBOX_RETENTION", 24*time.Hour),
+
+		AccessTokenTTL:  getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL: getEnvDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),
 	}
 
 	// Fail fast on insecure configuration in production instead of silently

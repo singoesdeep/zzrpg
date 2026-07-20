@@ -53,6 +53,24 @@ func (r *pgUserRepository) GetByUsername(ctx context.Context, username string) (
 	return &u, nil
 }
 
+func (r *pgUserRepository) GetByID(ctx context.Context, id int64) (*User, error) {
+	query := `
+		SELECT id, username, email, password_hash, role, created_at, updated_at
+		FROM users
+		WHERE id = $1
+	`
+	var u User
+	err := r.db.QueryRow(ctx, query, id).
+		Scan(&u.ID, &u.Username, &u.Email, &u.PasswordHash, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
 func (r *pgUserRepository) GetByEmail(ctx context.Context, email string) (*User, error) {
 	query := `
 		SELECT id, username, email, password_hash, role, created_at, updated_at

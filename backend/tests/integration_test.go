@@ -958,3 +958,54 @@ func TestOutboxPruneRemovesOldPublished(t *testing.T) {
 
 	_, _ = pool.Exec(context.Background(), `DELETE FROM outbox WHERE event_type = $1`, et)
 }
+
+// TestRefreshTokenRotationPg proves the Postgres-backed refresh store against
+// live Postgres: login stores a refresh token, refresh rotates it (old rejected),
+// and logout revokes it. Also exercises migration 000010. Requires PostgreSQL.
+func TestRefreshTokenRotationPg(t *testing.T) {
+	dbURL := "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skip("PostgreSQL not accessible, skipping refresh-token test.")
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("PostgreSQL running but ping failed, skipping refresh-token test.")
+	}
+	migrateTestDB(t, pool)
+
+	st := store.New(pool)
+	userRepo := auth.NewUserRepository(st)
+	authService := auth.NewAuthService(userRepo, "refresh-test-secret-00000000000",
+		auth.WithRefreshStore(auth.NewPgRefreshStore(st)))
+
+	uname := "refresh_" + time.Now().Format("150405.000000")
+	if _, err := authService.Register(ctx, uname, uname+"@test.com", "securepassword123"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	pair, err := authService.Login(ctx, uname, "securepassword123")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	next, err := authService.Refresh(ctx, pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if next.RefreshToken == pair.RefreshToken {
+		t.Error("refresh token was not rotated")
+	}
+	// The rotated-away token is now invalid in the DB.
+	if _, err := authService.Refresh(ctx, pair.RefreshToken); err != auth.ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken for reused token, got %v", err)
+	}
+	// Logout revokes the current token.
+	if err := authService.Logout(ctx, next.RefreshToken); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if _, err := authService.Refresh(ctx, next.RefreshToken); err != auth.ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken after logout, got %v", err)
+	}
+}

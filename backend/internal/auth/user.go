@@ -7,10 +7,11 @@ import (
 )
 
 var (
-	ErrUserAlreadyExists  = errors.New("username or email already registered")
-	ErrUserNotFound       = errors.New("user not found")
-	ErrInvalidCredentials = errors.New("invalid username or password")
-	ErrTooManyAttempts    = errors.New("too many failed login attempts; try again later")
+	ErrUserAlreadyExists   = errors.New("username or email already registered")
+	ErrUserNotFound        = errors.New("user not found")
+	ErrInvalidCredentials  = errors.New("invalid username or password")
+	ErrTooManyAttempts     = errors.New("too many failed login attempts; try again later")
+	ErrInvalidRefreshToken = errors.New("invalid or expired refresh token")
 )
 
 // Role values for RBAC.
@@ -33,4 +34,5 @@ type UserRepository interface {
 	Create(ctx context.Context, user *User) error
 	GetByUsername(ctx context.Context, username string) (*User, error)
 	GetByEmail(ctx context.Context, email string) (*User, error)
+	GetByID(ctx context.Context, id int64) (*User, error)
 }

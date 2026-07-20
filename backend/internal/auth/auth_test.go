@@ -48,6 +48,15 @@ func (m *mockUserRepository) GetByEmail(ctx context.Context, email string) (*Use
 	return u, nil
 }
 
+func (m *mockUserRepository) GetByID(ctx context.Context, id int64) (*User, error) {
+	for _, u := range m.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return nil, ErrUserNotFound
+}
+
 func TestRegister(t *testing.T) {
 	repo := newMockUserRepository()
 	service := NewAuthService(repo, "secret")
@@ -84,18 +93,18 @@ func TestLogin(t *testing.T) {
 	}
 
 	// 1. Login success
-	tokenString, err := service.Login(context.Background(), "player1", "correctpassword")
+	pair, err := service.Login(context.Background(), "player1", "correctpassword")
 	if err != nil {
 		t.Fatalf("expected successful login, got %v", err)
 	}
 
-	if len(tokenString) == 0 {
-		t.Fatal("expected non-empty token")
+	if pair.AccessToken == "" || pair.RefreshToken == "" {
+		t.Fatal("expected non-empty access and refresh tokens")
 	}
 
 	// Verify token claims
 	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(pair.AccessToken, claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(jwtSecret), nil
 	})
 
@@ -140,5 +149,42 @@ func TestLoginBruteForceLockout(t *testing.T) {
 	// Now locked: the correct password is rejected with ErrTooManyAttempts.
 	if _, err := service.Login(context.Background(), "victim", "correctpassword"); err != ErrTooManyAttempts {
 		t.Errorf("expected ErrTooManyAttempts after lockout, got %v", err)
+	}
+}
+
+// TestRefreshRotation proves refresh tokens are single-use: refreshing returns a
+// new pair, the old refresh token is then rejected, and logout revokes a token.
+func TestRefreshRotation(t *testing.T) {
+	repo := newMockUserRepository()
+	service := NewAuthService(repo, "secret")
+	if _, err := service.Register(context.Background(), "p", "p@test.com", "pw"); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	pair, err := service.Login(context.Background(), "p", "pw")
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+
+	// Refresh rotates to a new pair.
+	next, err := service.Refresh(context.Background(), pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if next.RefreshToken == pair.RefreshToken {
+		t.Error("refresh token was not rotated")
+	}
+
+	// The consumed (old) refresh token is now invalid.
+	if _, err := service.Refresh(context.Background(), pair.RefreshToken); err != ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken for reused token, got %v", err)
+	}
+
+	// Logout revokes the current refresh token.
+	if err := service.Logout(context.Background(), next.RefreshToken); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if _, err := service.Refresh(context.Background(), next.RefreshToken); err != ErrInvalidRefreshToken {
+		t.Errorf("expected ErrInvalidRefreshToken after logout, got %v", err)
 	}
 }
