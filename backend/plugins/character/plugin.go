@@ -29,6 +29,16 @@ type Plugin struct {
 	decoders    *outbox.Registry
 }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Character System",
+		Description: "Character progression, stat calculations, level ups, and active session tracking",
+		Icon:        "fa-user-ninja",
+		Category:    "Gameplay",
+		Endpoints:   []string{"POST /api/v1/characters", "GET /api/v1/characters", "GET /api/v1/characters/{id}", "GET /api/v1/characters/{id}/stats"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta {
 	return plugin.Meta{Name: "character", Requires: []string{"core"}}
 }

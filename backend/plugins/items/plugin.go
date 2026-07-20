@@ -12,6 +12,16 @@ import (
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Items Catalog",
+		Description: "Data-driven item definitions, base stat modifiers, and rarity tiers",
+		Icon:        "fa-shield-halved",
+		Category:    "Content",
+		Endpoints:   []string{"POST /api/v1/admin/items", "PUT /api/v1/admin/items/{id}", "GET /api/v1/admin/items", "DELETE /api/v1/admin/items/{id}"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta { return plugin.Meta{Name: "items", Requires: []string{"core"}} }
 
 func (Plugin) Init(ic plugin.InitContext) error {

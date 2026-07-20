@@ -13,6 +13,16 @@ import (
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Quest System",
+		Description: "Multi-step quest chains, objective progress tracking, and reward distribution",
+		Icon:        "fa-scroll",
+		Category:    "Gameplay",
+		Endpoints:   []string{"POST /api/v1/admin/quests", "GET /api/v1/quests", "POST /api/v1/characters/{id}/quests/accept", "GET /api/v1/characters/{id}/quests"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta {
 	return plugin.Meta{Name: "quests", Requires: []string{"core", "character", "inventory"}}
 }

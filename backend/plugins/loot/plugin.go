@@ -14,6 +14,16 @@ import (
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Loot Tables",
+		Description: "Probability-based loot tables and item drop roll engines",
+		Icon:        "fa-coins",
+		Category:    "Economy",
+		Endpoints:   []string{"POST /api/v1/admin/loot", "GET /api/v1/admin/loot"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta { return plugin.Meta{Name: "loot", Requires: []string{"core"}} }
 
 func (Plugin) Init(ic plugin.InitContext) error {

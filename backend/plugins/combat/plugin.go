@@ -37,6 +37,16 @@ func (a skillResolver) Resolve(id string) (combat.SkillEffect, bool) {
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Combat Engine",
+		Description: "Damage resolution via Rust zzstat FFI, mob/player targeting, and skill execution",
+		Icon:        "fa-khanda",
+		Category:    "Combat",
+		Endpoints:   []string{"GET /api/v1/skills", "WS COMBAT_ATTACK -> COMBAT_DAMAGE"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta {
 	return plugin.Meta{Name: "combat", Requires: []string{"core", "character", "inventory", "loot", "quests"}}
 }

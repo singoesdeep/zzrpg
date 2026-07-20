@@ -18,6 +18,16 @@ func AdminOnly(jwtSecret string, h http.Handler) http.Handler {
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Authentication & Users",
+		Description: "User registration, JWT tokens, refresh token rotation, and brute-force protection",
+		Icon:        "fa-key",
+		Category:    "Security",
+		Endpoints:   []string{"POST /api/v1/auth/register", "POST /api/v1/auth/login", "POST /api/v1/auth/refresh", "GET /api/v1/auth/me"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta { return plugin.Meta{Name: "auth", Requires: []string{"core"}} }
 
 func (Plugin) Init(ic plugin.InitContext) error {

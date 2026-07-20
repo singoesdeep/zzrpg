@@ -78,6 +78,23 @@ func (k *Kernel) Run(ctx context.Context) error {
 		return err
 	}
 
+	var catalog []plugin.PluginInfo
+	for _, p := range ordered {
+		info := plugin.PluginInfo{
+			Name:     p.Meta().Name,
+			Requires: p.Meta().Requires,
+			Status:   "ACTIVE",
+		}
+		if desc, ok := p.(plugin.AdminDescribor); ok {
+			adm := desc.AdminInfo()
+			info.Admin = &adm
+		}
+		catalog = append(catalog, info)
+	}
+	if err := registry.Provide(k.reg, "pluginCatalog", catalog); err != nil {
+		return err
+	}
+
 	ic := &engineContext{ctx: ctx, k: k}
 	for _, p := range ordered {
 		if err := p.Init(ic); err != nil {

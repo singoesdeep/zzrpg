@@ -16,6 +16,16 @@ import (
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Idle Progression",
+		Description: "Standalone event-driven offline progression calculating STR/INT scaled gold, exp, and loot",
+		Icon:        "fa-moon",
+		Category:    "Economy",
+		Endpoints:   []string{"EVENT: CharacterLoggedIn -> OfflineGainsGranted"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta {
 	return plugin.Meta{Name: "idle", Requires: []string{"core", "character", "inventory", "loot"}}
 }

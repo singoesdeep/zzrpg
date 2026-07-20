@@ -78,3 +78,27 @@ type Base struct{}
 
 func (Base) Start(RunContext) error     { return nil }
 func (Base) Stop(context.Context) error { return nil }
+
+// AdminInfo describes a plugin's administrative UI presentation.
+type AdminInfo struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Icon        string   `json:"icon"`        // FontAwesome icon e.g. "fa-shield-halved"
+	Category    string   `json:"category"`    // e.g. "Core", "Gameplay", "Economy", "Security"
+	Endpoints   []string `json:"endpoints,omitempty"`
+}
+
+// PluginInfo combines a plugin's runtime status and administrative metadata for
+// rendering in the Admin Dashboard.
+type PluginInfo struct {
+	Name     string     `json:"name"`
+	Requires []string   `json:"requires"`
+	Status   string     `json:"status"`
+	Admin    *AdminInfo `json:"admin,omitempty"`
+}
+
+// AdminDescribor is an optional interface plugins can implement to expose
+// administrative details to the Admin Dashboard.
+type AdminDescribor interface {
+	AdminInfo() AdminInfo
+}

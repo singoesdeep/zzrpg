@@ -36,6 +36,14 @@ initialised), then `Start`, then `Stop` in reverse.
 | `Mux()` | register HTTP routes |
 | `Config()`, `Logger()`, `Context()` | config, structured logger, lifecycle ctx |
 
+Plugins can also optionally implement `plugin.AdminDescribor` to register administrative metadata and UI views dynamically in the Admin Dashboard (`/admin`):
+
+```go
+type AdminDescribor interface {
+    AdminInfo() AdminInfo // Title, Description, Icon, Category, Endpoints
+}
+```
+
 ---
 
 ## 2. The four extension mechanisms

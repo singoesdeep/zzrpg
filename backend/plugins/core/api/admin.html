@@ -476,6 +476,9 @@
       <div class="nav-item" onclick="switchTab('characters', this)">
         <i class="fa-solid fa-users"></i> Character Inspector
       </div>
+      <div class="nav-item" onclick="switchTab('plugins', this); loadPlugins();">
+        <i class="fa-solid fa-puzzle-piece"></i> Plugins Catalog
+      </div>
       <div class="nav-item" onclick="switchTab('events', this)">
         <i class="fa-solid fa-terminal"></i> Event Console & WS
       </div>
@@ -671,7 +674,22 @@
         </div>
       </div>
 
-      <!-- TAB 6: Event Console & WS Stream -->
+      <!-- TAB 6: Plugins Catalog -->
+      <div id="tab-plugins" class="tab-content">
+        <div class="section-title">
+          <div>
+            <h1>Registered Engine Plugins</h1>
+            <p class="section-desc">Dynamic extension catalog loaded by the kernel (`/api/v1/admin/plugins`). Plugins implement `AdminDescribor` to register custom UI views.</p>
+          </div>
+          <button class="btn btn-secondary" onclick="loadPlugins()"><i class="fa-solid fa-rotate"></i> Refresh Catalog</button>
+        </div>
+
+        <div class="metrics-grid" id="plugins-card-grid">
+          <!-- Dynamically populated plugin cards -->
+        </div>
+      </div>
+
+      <!-- TAB 7: Event Console & WS Stream -->
       <div id="tab-events" class="tab-content">
         <div class="section-title">
           <div>
@@ -1008,6 +1026,54 @@
       div.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-type ${type}">${type}</span> <span>${escapeHtml(text)}</span>`;
       feed.appendChild(div);
       feed.scrollTop = feed.scrollHeight;
+    }
+
+    async function loadPlugins() {
+      try {
+        const res = await fetch('/api/v1/admin/plugins');
+        const data = await res.json();
+        const grid = document.getElementById('plugins-card-grid');
+        if (!res.ok || !data.plugins) {
+          grid.innerHTML = `<div style="color:var(--accent-rose);">Failed to load plugin catalog.</div>`;
+          return;
+        }
+        grid.innerHTML = data.plugins.map(p => {
+          const adm = p.admin || { title: p.name, description: 'Standalone engine plugin', icon: 'fa-cube', category: 'General', endpoints: [] };
+          return `
+            <div class="card" style="position:relative; overflow:hidden;">
+              <div style="display:flex; align-items:center; justify-content:space-between;">
+                <div style="display:flex; align-items:center; gap:0.75rem;">
+                  <div class="brand-icon" style="width:36px; height:36px;"><i class="fa-solid ${adm.icon}"></i></div>
+                  <div>
+                    <h3 style="font-size:1.1rem; font-weight:700;">${adm.title}</h3>
+                    <span class="badge badge-cyan" style="font-size:0.65rem;">name: ${p.name}</span>
+                  </div>
+                </div>
+                <span class="badge badge-violet">${p.status}</span>
+              </div>
+              <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.5rem;">${adm.description}</p>
+              
+              <div style="margin-top:0.75rem;">
+                <div style="font-size:0.7rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Requires Dependencies:</div>
+                <div style="display:flex; gap:0.3rem; flex-wrap:wrap; margin-top:0.25rem;">
+                  ${p.requires && p.requires.length > 0 ? p.requires.map(r => `<span class="badge badge-amber">${r}</span>`).join('') : '<span style="font-size:0.75rem; color:var(--text-muted);">None (Base Core)</span>'}
+                </div>
+              </div>
+
+              ${adm.endpoints && adm.endpoints.length > 0 ? `
+                <div style="margin-top:0.75rem;">
+                  <div style="font-size:0.7rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Exposed Endpoints / Events:</div>
+                  <div style="display:flex; flex-direction:column; gap:0.25rem; margin-top:0.25rem;">
+                    ${adm.endpoints.map(ep => `<code style="font-size:0.75rem; background:rgba(0,0,0,0.4); padding:0.2rem 0.4rem; border-radius:4px; color:var(--accent-cyan); font-family:var(--font-mono);">${ep}</code>`).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (err) {
+        document.getElementById('plugins-card-grid').innerHTML = `<div style="color:var(--accent-rose);">Error loading plugins: ${err.message}</div>`;
+      }
     }
 
     function escapeHtml(str) {

@@ -12,6 +12,16 @@ import (
 
 type Plugin struct{ plugin.Base }
 
+func (Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Inventory & Storage",
+		Description: "Slot-based inventory, equipment equipping/unequipping, and stat recalculation triggers",
+		Icon:        "fa-boxes-stacked",
+		Category:    "Economy",
+		Endpoints:   []string{"GET /api/v1/characters/{id}/inventory", "POST /api/v1/inventory/move", "POST /api/v1/admin/inventory/add"},
+	}
+}
+
 func (Plugin) Meta() plugin.Meta {
 	return plugin.Meta{Name: "inventory", Requires: []string{"core", "character"}}
 }

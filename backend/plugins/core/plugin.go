@@ -67,6 +67,16 @@ func NewPlugin() *Plugin {
 	return &Plugin{}
 }
 
+func (p *Plugin) AdminInfo() plugin.AdminInfo {
+	return plugin.AdminInfo{
+		Title:       "Core Infrastructure",
+		Description: "Engine substrate providing DB pool, Redis cache, WebSockets, outbox relay & event streams",
+		Icon:        "fa-server",
+		Category:    "Infrastructure",
+		Endpoints:   []string{"GET /health", "GET /readyz", "GET /metrics", "GET /docs", "GET /admin", "GET /api/v1/admin/plugins", "WS /ws"},
+	}
+}
+
 func (p *Plugin) Meta() plugin.Meta { return plugin.Meta{Name: "core"} }
 
 func (p *Plugin) Init(ic plugin.InitContext) error {
@@ -142,7 +152,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 
-	p.registerHTTPEndpoints(mux, log)
+	p.registerHTTPEndpoints(mux, reg, log)
 	p.registerWebSocket(mux, reg, cfg.JWTSecret)
 
 	return nil
@@ -186,7 +196,7 @@ func (p *Plugin) setupEventStream(ic plugin.InitContext, decoders *outbox.Regist
 	}
 }
 
-func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, log *slog.Logger) {
+func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registry, log *slog.Logger) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -254,6 +264,20 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, log *slog.Logger) {
 			return
 		}
 		_, _ = w.Write(data)
+	})
+
+	mux.HandleFunc("GET /api/v1/admin/plugins", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		catalog, err := registry.Resolve[[]plugin.PluginInfo](reg, "pluginCatalog")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin catalog"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"plugins": catalog,
+		})
 	})
 }
 
