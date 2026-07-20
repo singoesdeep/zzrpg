@@ -1,4 +1,4 @@
-<!-- sha: 9c3c8fe0620049fbc5e5d6ad4f7097d514b7124e -->
+<!-- sha: c1802da1a088d9e83667ec14327f919135081e7f -->
 # 🧩 Plugin Subsystem & Extensibility
 
 `zzrpg` follows a WordPress-style modular plugin architecture in Go. Plugins are thin **composition adapters** under `backend/plugins/`: each wires a game domain (from `backend/game/`) to shared infrastructure (`backend/platform/`) and the engine (`backend/engine/`). Domain logic lives in `backend/game/<domain>/`; the plugin only assembles it. See [Architecture](architecture.md) for the four-layer structure.

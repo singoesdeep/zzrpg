@@ -1,4 +1,4 @@
-<!-- sha: 9c3c8fe0620049fbc5e5d6ad4f7097d514b7124e -->
+<!-- sha: c1802da1a088d9e83667ec14327f919135081e7f -->
 # 🏛️ Core Architecture & Kernel Substrate
 
 The `zzrpg` engine kernel is a **domain-agnostic, plugin-first backend substrate**. It contains zero RPG concepts (no "character", "quest", "mob", or "gold") and serves as the execution lifecycle container for game plugins.
