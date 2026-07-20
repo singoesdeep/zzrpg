@@ -1,4 +1,4 @@
-<!-- sha: cd8d48cc325f6b112923be8a742343189c59af5e -->
+<!-- sha: 9c3c8fe0620049fbc5e5d6ad4f7097d514b7124e -->
 # 💾 Database, Outbox & Event Sourcing
 
 The persistence layer uses PostgreSQL 16 with `pgxpool` and enforces strict transactional integrity via the `Store` and `UnitOfWork` seams.
