@@ -34,19 +34,39 @@ type CharacterReader interface {
 	GetByID(ctx context.Context, id int64) (*character.CharacterWithStats, error)
 }
 
+// SkillEffect is the server-authoritative effect of a skill. combat resolves a
+// requested skill to one of these rather than trusting client-supplied numbers.
+type SkillEffect struct {
+	Multiplier float64
+	FlatDamage float64
+	ManaCost   float64
+	ClassReq   string // "" = any class
+}
+
+// SkillResolver looks up a skill's effect by ID. Consumer-owned so combat depends
+// only on the resolution behaviour, not the full skills service. Implemented by a
+// thin adapter over internal/skills.
+type SkillResolver interface {
+	Resolve(skillID string) (SkillEffect, bool)
+}
+
 var (
-	ErrAttackerNotFound = errors.New("attacker not found or session inactive")
-	ErrDefenderNotFound = errors.New("defender not found or session inactive")
-	ErrAttackerDead     = errors.New("attacker is dead")
-	ErrDefenderDead     = errors.New("defender is already dead")
+	ErrAttackerNotFound   = errors.New("attacker not found or session inactive")
+	ErrDefenderNotFound   = errors.New("defender not found or session inactive")
+	ErrAttackerDead       = errors.New("attacker is dead")
+	ErrDefenderDead       = errors.New("defender is already dead")
+	ErrUnknownSkill       = errors.New("unknown skill")
+	ErrSkillClassMismatch = errors.New("skill not usable by this class")
+	ErrNotEnoughMana      = errors.New("not enough mana")
 )
 
 type AttackRequest struct {
-	AttackerID      int64   `json:"attacker_id"`
-	DefenderID      int64   `json:"defender_id"`
-	SkillID         string  `json:"skill_id,omitempty"`
-	SkillMultiplier float64 `json:"skill_multiplier,omitempty"`
-	SkillFlatDamage float64 `json:"skill_flat_damage,omitempty"`
+	AttackerID int64 `json:"attacker_id"`
+	DefenderID int64 `json:"defender_id"`
+	// SkillID names the skill to use (empty = a basic attack). The skill's
+	// numbers come from the server's skill pack — clients never send damage
+	// multipliers.
+	SkillID string `json:"skill_id,omitempty"`
 }
 
 type AttackResult struct {
@@ -72,10 +92,12 @@ type combatService struct {
 	rewarder    KillRewarder
 	eventBus    bus.EventBus
 	hooks       *hooks.Hooks
+	skills      SkillResolver
 }
 
-// NewCombatService builds the combat service. eventBus and hks may be nil (no
-// events published / no hook filters applied, respectively).
+// NewCombatService builds the combat service. eventBus, hks and skills may be nil
+// (no events published / no hook filters applied / skill attacks rejected,
+// respectively).
 func NewCombatService(
 	charService CharacterReader,
 	statClient statclient.Client,
@@ -83,6 +105,7 @@ func NewCombatService(
 	rewarder KillRewarder,
 	eventBus bus.EventBus,
 	hks *hooks.Hooks,
+	skills SkillResolver,
 ) CombatService {
 	return &combatService{
 		charService: charService,
@@ -91,6 +114,7 @@ func NewCombatService(
 		rewarder:    rewarder,
 		eventBus:    eventBus,
 		hooks:       hks,
+		skills:      skills,
 	}
 }
 
@@ -134,6 +158,28 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 	attackerCritRate = attackerChar.Stats.DerivedStats["CRIT_RATE"]
 	// default crit damage bonus is 0 for base
 	attackerCritDmg = 0.0
+
+	// 1b. Resolve the skill server-side (a basic attack when no skill is named).
+	// The multiplier/flat/mana come from the server's skill pack, never the
+	// client. Class is gated and mana is spent from the attacker's session.
+	var skillMult, skillFlat float64
+	if req.SkillID != "" {
+		if s.skills == nil {
+			return nil, ErrUnknownSkill
+		}
+		eff, ok := s.skills.Resolve(req.SkillID)
+		if !ok {
+			return nil, ErrUnknownSkill
+		}
+		if eff.ClassReq != "" && attackerChar.ClassName != eff.ClassReq {
+			return nil, ErrSkillClassMismatch
+		}
+		if eff.ManaCost > 0 && !s.registry.SpendMP(req.AttackerID, eff.ManaCost) {
+			return nil, ErrNotEnoughMana
+		}
+		skillMult = eff.Multiplier
+		skillFlat = eff.FlatDamage
+	}
 
 	// 2. Resolve defender session and details
 	var defenderLevel int32
@@ -202,8 +248,8 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 			Defense: defenderDef,
 			Dex:     defenderDex,
 		},
-		SkillMultiplier: req.SkillMultiplier,
-		SkillFlatDamage: req.SkillFlatDamage,
+		SkillMultiplier: skillMult,
+		SkillFlatDamage: skillFlat,
 	}
 
 	res, err := s.statClient.CalculateDamage(ctx, calcReq)

@@ -31,6 +31,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/session"
+	"github.com/singoesdeep/zzrpg/backend/internal/skills"
 	"github.com/singoesdeep/zzrpg/backend/internal/socket"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
@@ -55,6 +56,23 @@ func nodeID() string {
 		host = "node"
 	}
 	return fmt.Sprintf("%s-%d", host, os.Getpid())
+}
+
+// skillResolver adapts the skills service to combat.SkillResolver (consumer-owned
+// interface), mapping a skill definition to the effect combat applies.
+type skillResolver struct{ svc *skills.Service }
+
+func (a skillResolver) Resolve(id string) (combat.SkillEffect, bool) {
+	d, ok := a.svc.Resolve(id)
+	if !ok {
+		return combat.SkillEffect{}, false
+	}
+	return combat.SkillEffect{
+		Multiplier: d.Multiplier,
+		FlatDamage: d.FlatDamage,
+		ManaCost:   d.ManaCost,
+		ClassReq:   d.Class,
+	}, true
 }
 
 // statHolder wraps the embedded stat client so it can live in the registry even
@@ -735,8 +753,11 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 	sessionReg := registry.MustResolve[*session.Registry](reg, "session")
 
+	skillService := skills.NewService()
+	ic.Mux().Handle("GET /api/v1/skills", auth.AuthMiddleware(ic.Config().JWTSecret)(skills.ListHandler(skillService)))
+
 	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
-	combatService := combat.NewCombatService(charService, stat.client, sessionReg, rewarder, ic.Bus(), ic.Hooks())
+	combatService := combat.NewCombatService(charService, stat.client, sessionReg, rewarder, ic.Bus(), ic.Hooks(), skillResolver{skillService})
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {

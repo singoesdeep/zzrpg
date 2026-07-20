@@ -1,0 +1,6 @@
+{
+  "slash":        { "name": "Slash",        "class": "",         "multiplier": 1.2, "flat_damage": 0,  "mana_cost": 5  },
+  "power_strike": { "name": "Power Strike", "class": "WARRIOR",  "multiplier": 1.6, "flat_damage": 0,  "mana_cost": 12 },
+  "fireball":     { "name": "Fireball",     "class": "MAGE",     "multiplier": 2.0, "flat_damage": 20, "mana_cost": 25 },
+  "backstab":     { "name": "Backstab",     "class": "ASSASSIN", "multiplier": 2.5, "flat_damage": 0,  "mana_cost": 18 }
+}

@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json loot/tables.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json loot/tables.json skills/skills.json
 var files embed.FS
 
 // overrideDir, when non-empty, is searched (by relative path) before the embedded
@@ -141,6 +141,42 @@ type LootTable struct {
 // LootTables is the fallback loot pack keyed by table ID, used when the DB has
 // no row for a table (e.g. the training dummy's drops).
 type LootTables map[string]LootTable
+
+// Skill is a data-driven ability definition. An empty Class means any class may
+// use it. Multiplier scales the attacker's damage and FlatDamage is added on top;
+// ManaCost is spent from the attacker's session on use.
+type Skill struct {
+	Name       string  `json:"name"`
+	Class      string  `json:"class"`
+	Multiplier float64 `json:"multiplier"`
+	FlatDamage float64 `json:"flat_damage"`
+	ManaCost   float64 `json:"mana_cost"`
+}
+
+// Skills is the skill content pack, keyed by skill ID.
+type Skills map[string]Skill
+
+// LoadSkills reads the embedded skill-definition pack.
+func LoadSkills() (Skills, error) {
+	raw, err := readContent("skills/skills.json")
+	if err != nil {
+		return nil, fmt.Errorf("read skills.json: %w", err)
+	}
+	var s Skills
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("parse skills.json: %w", err)
+	}
+	return s, nil
+}
+
+// MustLoadSkills is LoadSkills but panics on error.
+func MustLoadSkills() Skills {
+	s, err := LoadSkills()
+	if err != nil {
+		panic(err)
+	}
+	return s
+}
 
 // LoadDerivedStats reads the embedded derived-stat formula pack.
 func LoadDerivedStats() (*DerivedStats, error) {

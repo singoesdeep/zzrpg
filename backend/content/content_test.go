@@ -195,3 +195,20 @@ func TestContentOverride(t *testing.T) {
 		t.Errorf("non-overridden pack should fall back to embedded, got %v", classes["WARRIOR"])
 	}
 }
+
+func TestSkillsPack(t *testing.T) {
+	sk, err := LoadSkills()
+	if err != nil {
+		t.Fatalf("LoadSkills: %v", err)
+	}
+	fb, ok := sk["fireball"]
+	if !ok {
+		t.Fatal("fireball missing")
+	}
+	if fb.Class != "MAGE" || fb.Multiplier != 2.0 || fb.FlatDamage != 20 || fb.ManaCost != 25 {
+		t.Errorf("unexpected fireball def: %+v", fb)
+	}
+	if sk["slash"].Class != "" {
+		t.Errorf("slash should be usable by any class, got %q", sk["slash"].Class)
+	}
+}

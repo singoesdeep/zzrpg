@@ -143,6 +143,20 @@ func (r *Registry) Heal(charID int64, amount float64) (float64, bool) {
 	return sess.CurrentHP, true
 }
 
+// SpendMP deducts amount from a character's current MP if it has enough,
+// returning whether the spend succeeded. Used for skill mana costs.
+func (r *Registry) SpendMP(charID int64, amount float64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	sess, exists := r.sessions[charID]
+	if !exists || sess.CurrentMP < amount {
+		return false
+	}
+	sess.CurrentMP -= amount
+	return true
+}
+
 func (r *Registry) Revive(charID int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

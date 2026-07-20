@@ -41,14 +41,21 @@ func (m *mockCharService) UpdateLastActive(ctx context.Context, charID int64) er
 
 type mockStatClient struct {
 	damageRes statclient.DamageResult
+	lastReq   statclient.CalculateDamageReq
 }
 
 func (m *mockStatClient) Calculate(ctx context.Context, state statclient.CharacterState) (map[string]float64, error) {
 	return nil, nil
 }
 func (m *mockStatClient) CalculateDamage(ctx context.Context, req statclient.CalculateDamageReq) (statclient.DamageResult, error) {
+	m.lastReq = req
 	return m.damageRes, nil
 }
+
+// mockSkills is a combat.SkillResolver for tests.
+type mockSkills map[string]SkillEffect
+
+func (m mockSkills) Resolve(id string) (SkillEffect, bool) { e, ok := m[id]; return e, ok }
 func (m *mockStatClient) Close() error {
 	return nil
 }
@@ -114,7 +121,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 	questSvc := &mockQuestService{}
 
 	rewarder := killreward.New(charService, questSvc, nil, nil, nil)
-	service := NewCombatService(charService, statClient, registry, rewarder, nil, nil)
+	service := NewCombatService(charService, statClient, registry, rewarder, nil, nil, nil)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{
@@ -190,7 +197,7 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 		mobKilled <- ev.(MobKilled)
 	})
 
-	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil)
+	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
 	if err != nil {
@@ -249,7 +256,7 @@ func TestCombatDamageHookFilter(t *testing.T) {
 	})
 
 	service := NewCombatService(charService, statClient, registry,
-		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks)
+		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 3, DefenderID: 9999})
 	if err != nil {
@@ -295,10 +302,68 @@ func TestCombatPreAttackVeto(t *testing.T) {
 	})
 
 	service := NewCombatService(charService, statClient, registry,
-		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks)
+		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	_, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 4, DefenderID: 9999})
 	if err == nil || err.Error() != "peaceful zone: attacks disabled" {
 		t.Errorf("expected the attack to be vetoed by the hook, got err=%v", err)
+	}
+}
+
+// TestCombatSkillServerAuthoritative proves skills are resolved server-side: the
+// skill's multiplier/flat reach the damage calc (not client input), mana is spent
+// from the session, and class/mana/unknown-skill errors are enforced.
+func TestCombatSkillServerAuthoritative(t *testing.T) {
+	registry := session.NewRegistry()
+	defer registry.EndSession(5)
+	defer registry.EndSession(9999)
+
+	mage := &mockCharService{char: &character.CharacterWithStats{
+		Character: character.Character{ID: 5, ClassName: "MAGE", Level: 10},
+		Stats:     character.CharacterStats{DerivedStats: map[string]float64{"ATTACK": 150}},
+	}}
+	stat := &mockStatClient{damageRes: statclient.DamageResult{IsHit: true, Damage: 100}}
+	skillPack := mockSkills{
+		"fireball": {Multiplier: 2.0, FlatDamage: 20, ManaCost: 25, ClassReq: "MAGE"},
+	}
+	service := NewCombatService(mage, stat, registry,
+		killreward.New(mage, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
+
+	// Session has 50 MP.
+	_ = registry.StartSession(5, 100, 50)
+
+	// Fireball: the skill's numbers reach the calc and 25 MP is spent.
+	if _, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 5, DefenderID: 9999, SkillID: "fireball"}); err != nil {
+		t.Fatalf("fireball attack: %v", err)
+	}
+	if stat.lastReq.SkillMultiplier != 2.0 || stat.lastReq.SkillFlatDamage != 20 {
+		t.Errorf("expected server skill numbers in calc, got mult=%v flat=%v", stat.lastReq.SkillMultiplier, stat.lastReq.SkillFlatDamage)
+	}
+	if sess, _ := registry.GetSession(5); sess.CurrentMP != 25 {
+		t.Errorf("expected 25 MP left after spending 25, got %v", sess.CurrentMP)
+	}
+
+	// Unknown skill is rejected.
+	if _, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 5, DefenderID: 9999, SkillID: "nope"}); err != ErrUnknownSkill {
+		t.Errorf("expected ErrUnknownSkill, got %v", err)
+	}
+
+	// Not enough mana (25 left, fireball costs 25 -> ok once more leaves 0, then fails).
+	_, _ = service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 5, DefenderID: 9999, SkillID: "fireball"}) // spends to 0
+	if _, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 5, DefenderID: 9999, SkillID: "fireball"}); err != ErrNotEnoughMana {
+		t.Errorf("expected ErrNotEnoughMana with 0 MP, got %v", err)
+	}
+
+	// Class mismatch: a WARRIOR can't cast fireball.
+	warrior := &mockCharService{char: &character.CharacterWithStats{
+		Character: character.Character{ID: 6, ClassName: "WARRIOR", Level: 10},
+		Stats:     character.CharacterStats{DerivedStats: map[string]float64{"ATTACK": 150}},
+	}}
+	wsvc := NewCombatService(warrior, stat, registry,
+		killreward.New(warrior, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
+	_ = registry.StartSession(6, 100, 100)
+	defer registry.EndSession(6)
+	if _, err := wsvc.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 6, DefenderID: 9999, SkillID: "fireball"}); err != ErrSkillClassMismatch {
+		t.Errorf("expected ErrSkillClassMismatch for WARRIOR casting fireball, got %v", err)
 	}
 }
