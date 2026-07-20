@@ -1,0 +1,34 @@
+# LLM Wiki Configuration for zzrpg Engine
+# Inspired by Andrej Karpathy's LLM Wiki pattern and Balu Kosuri's docs-from-code tool.
+
+version: "1.0"
+wiki_dir: "docs/wiki"
+hook_trigger: "post-commit"
+
+categories:
+  - id: "architecture"
+    title: "Kernel & Architecture"
+    description: "Engine substrate, lifecycle, DI registry, typed event bus, hooks, and fanout"
+    path: "docs/wiki/architecture.md"
+  - id: "plugins"
+    title: "Plugin Subsystem & Extensibility"
+    description: "Domain plugins, AdminDescribor interface, StateManager, and standalone modules"
+    path: "docs/wiki/plugins.md"
+  - id: "combat"
+    title: "Combat Engine & Stat Core"
+    description: "Damage math, creature resolution, skill resolvers, and embedded Rust zzstat FFI"
+    path: "docs/wiki/combat-engine.md"
+  - id: "database"
+    title: "Database, Outbox & Event Sourcing"
+    description: "Store/UnitOfWork seam, PostgreSQL schema, outbox relay, and event_log replay"
+    path: "docs/wiki/database-outbox.md"
+  - id: "admin-ui"
+    title: "Web Admin Dashboard & APIs"
+    description: "REST endpoints, WebSocket protocol, OpenAPI spec, and Admin UI"
+    path: "docs/wiki/admin-dashboard.md"
+
+rules:
+  require_citations: true      # Every claim must reference source file paths and line ranges
+  require_sha_header: true     # Pages track the latest git commit SHA for freshness checking
+  prevent_hallucination: true # Do not document non-existent endpoints or symbols
+  auto_update_index: true      # Automatically regenerate index.md sitemap

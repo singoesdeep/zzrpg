@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Git post-commit hook for LLM Wiki sync
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+if [ -f "${ROOT_DIR}/.llmwiki/ingest.sh" ]; then
+    "${ROOT_DIR}/.llmwiki/ingest.sh" > /dev/null 2>&1 &
+fi
