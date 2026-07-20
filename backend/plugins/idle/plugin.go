@@ -42,6 +42,10 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 	idleSvc := idle.NewService(chars, lootSvc, invSvc)
 
 	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
+		if mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager"); err == nil && !mgr.IsActive("idle") {
+			return
+		}
+
 		e, ok := ev.(character.CharacterLoggedIn)
 		if !ok {
 			return

@@ -91,7 +91,11 @@ func (k *Kernel) Run(ctx context.Context) error {
 		}
 		catalog = append(catalog, info)
 	}
+	mgr := plugin.NewStateManager(catalog)
 	if err := registry.Provide(k.reg, "pluginCatalog", catalog); err != nil {
+		return err
+	}
+	if err := registry.Provide(k.reg, "pluginManager", mgr); err != nil {
 		return err
 	}
 

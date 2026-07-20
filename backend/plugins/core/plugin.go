@@ -268,15 +268,37 @@ func (p *Plugin) registerHTTPEndpoints(mux *http.ServeMux, reg *registry.Registr
 
 	mux.HandleFunc("GET /api/v1/admin/plugins", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		catalog, err := registry.Resolve[[]plugin.PluginInfo](reg, "pluginCatalog")
+		mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin catalog"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin manager"})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"success": true,
-			"plugins": catalog,
+			"plugins": mgr.List(),
+		})
+	})
+
+	mux.HandleFunc("POST /api/v1/admin/plugins/{name}/toggle", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		name := r.PathValue("name")
+		mgr, err := registry.Resolve[*plugin.StateManager](reg, "pluginManager")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve plugin manager"})
+			return
+		}
+		newStatus, terr := mgr.Toggle(name)
+		if terr != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": terr.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"name":    name,
+			"status":  newStatus,
 		})
 	})
 }
