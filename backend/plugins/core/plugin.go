@@ -30,7 +30,6 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 	"github.com/singoesdeep/zzrpg/backend/platform/session"
 	"github.com/singoesdeep/zzrpg/backend/platform/socket"
-	"github.com/singoesdeep/zzrpg/backend/platform/statclient"
 )
 
 //go:embed api/*
@@ -55,7 +54,6 @@ type Plugin struct {
 	db              *database.DB
 	cache           cache.Cache
 	closeCache      func() error
-	stat            *statclient.StatHolder
 	hub             *socket.Hub
 	router          *socket.MessageRouter
 	sessionReg      *session.Registry
@@ -103,13 +101,6 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	if err := db.RunMigrations(ctx, pluginSets...); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
-
-	statClient, err := statclient.NewClient(cfg.ZzstatGRPCURL)
-	if err != nil {
-		return fmt.Errorf("load embedded Rust zzstat library: %w", err)
-	}
-	log.Info("Successfully initialized embedded statclient loading Rust zzstat shared library")
-	p.stat = &statclient.StatHolder{Client: statClient}
 
 	var appCache cache.Cache = cache.Noop{}
 	if c, closeCache, err := cache.NewRedis(ctx, cfg.RedisURL); err != nil {
@@ -161,9 +152,6 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 	if err := registry.Provide(reg, "cache", p.cache); err != nil {
-		return err
-	}
-	if err := registry.Provide(reg, "stat", p.stat); err != nil {
 		return err
 	}
 	if err := registry.Provide(reg, "hub", p.hub); err != nil {
@@ -378,11 +366,6 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	}
 	if p.closeCache != nil {
 		_ = p.closeCache()
-	}
-	if p.stat != nil && p.stat.Client != nil {
-		if err := p.stat.Client.Close(); err != nil {
-			return fmt.Errorf("close statclient: %w", err)
-		}
 	}
 	if p.db != nil {
 		p.db.Close()

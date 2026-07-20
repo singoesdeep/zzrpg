@@ -20,6 +20,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/plugins/items"
 	"github.com/singoesdeep/zzrpg/backend/plugins/loot"
 	"github.com/singoesdeep/zzrpg/backend/plugins/quests"
+	"github.com/singoesdeep/zzrpg/backend/plugins/stat"
 )
 
 func main() {
@@ -35,6 +36,7 @@ func main() {
 
 	k.Register(
 		core.NewPlugin(),
+		&stat.Plugin{}, // optional: omit for a game that needs no stat math
 		&auth.Plugin{},
 		&items.Plugin{},
 		&character.Plugin{},

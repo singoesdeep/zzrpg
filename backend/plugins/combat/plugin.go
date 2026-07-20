@@ -48,7 +48,7 @@ func (Plugin) AdminInfo() admin.Info {
 }
 
 func (Plugin) Meta() plugin.Meta {
-	return plugin.Meta{Name: "combat", Requires: []string{"core", "character", "inventory", "loot", "quests"}}
+	return plugin.Meta{Name: "combat", Requires: []string{"core", "stat", "character", "inventory", "loot", "quests"}}
 }
 
 func (Plugin) Init(ic plugin.InitContext) error {

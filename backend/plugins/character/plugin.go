@@ -41,7 +41,7 @@ func (Plugin) AdminInfo() admin.Info {
 }
 
 func (Plugin) Meta() plugin.Meta {
-	return plugin.Meta{Name: "character", Requires: []string{"core"}}
+	return plugin.Meta{Name: "character", Requires: []string{"core", "stat"}}
 }
 
 func (p *Plugin) Init(ic plugin.InitContext) error {
