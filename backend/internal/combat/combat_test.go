@@ -153,7 +153,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 
 	questSvc := &mockQuestService{}
 
-	rewarder := killreward.New(charService, questSvc, nil, nil, nil)
+	rewarder := killreward.New(testResolver(charService.char), charService, questSvc, nil, nil, nil)
 	service := NewCombatService(testResolver(charService.char), statClient, registry, rewarder, nil, nil, nil)
 
 	// 1. First Attack (Hit dummy)
@@ -230,7 +230,7 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 		mobKilled <- ev.(MobKilled)
 	})
 
-	service := NewCombatService(testResolver(charService.char), statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil, nil)
+	service := NewCombatService(testResolver(charService.char), statClient, registry, killreward.New(testResolver(charService.char), charService, &mockQuestService{}, nil, nil, nil), eventBus, nil, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
 	if err != nil {
@@ -289,7 +289,7 @@ func TestCombatDamageHookFilter(t *testing.T) {
 	})
 
 	service := NewCombatService(testResolver(charService.char), statClient, registry,
-		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
+		killreward.New(testResolver(charService.char), charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 3, DefenderID: 9999})
 	if err != nil {
@@ -335,7 +335,7 @@ func TestCombatPreAttackVeto(t *testing.T) {
 	})
 
 	service := NewCombatService(testResolver(charService.char), statClient, registry,
-		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
+		killreward.New(testResolver(charService.char), charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	_, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 4, DefenderID: 9999})
 	if err == nil || err.Error() != "peaceful zone: attacks disabled" {
@@ -360,7 +360,7 @@ func TestCombatSkillServerAuthoritative(t *testing.T) {
 		"fireball": {Multiplier: 2.0, FlatDamage: 20, ManaCost: 25, ClassReq: "MAGE"},
 	}
 	service := NewCombatService(testResolver(mage.char), stat, registry,
-		killreward.New(mage, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
+		killreward.New(testResolver(mage.char), mage, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
 
 	// Session has 50 MP.
 	_ = registry.StartSession(5, 100, 50)
@@ -393,7 +393,7 @@ func TestCombatSkillServerAuthoritative(t *testing.T) {
 		Stats:     character.CharacterStats{DerivedStats: map[string]float64{"ATTACK": 150}},
 	}}
 	wsvc := NewCombatService(testResolver(warrior.char), stat, registry,
-		killreward.New(warrior, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
+		killreward.New(testResolver(warrior.char), warrior, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
 	_ = registry.StartSession(6, 100, 100)
 	defer registry.EndSession(6)
 	if _, err := wsvc.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 6, DefenderID: 9999, SkillID: "fireball"}); err != ErrSkillClassMismatch {

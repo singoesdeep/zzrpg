@@ -1,28 +1,19 @@
-// Package killreward implements the death-progression side effects of a kill:
-// quest progress, loot rolling, and applying drops (gold to the killer's
-// balance, items to their inventory). It is the concrete implementation of
-// combat.KillRewarder, kept in its own package so the combat service does not
-// depend on the quest, loot, or inventory services directly.
 package killreward
 
 import (
 	"context"
-	"strconv"
 
-	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/internal/creature"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 )
 
-// mobDefs is the mob content pack, loaded once from embedded content. It drives
-// which loot table a kill rolls and which quest tag it counts toward.
-var mobDefs = content.MustLoadMobs()
-
-// The interfaces below are consumer-owned: killreward declares the minimal
-// surface it needs from each collaborator, so it depends on those behaviours
-// rather than importing the character and quest service packages. This drops the
-// killreward→character and killreward→quests package edges entirely.
+// CreatureResolver resolves a creature ID to a Creature model containing stats
+// and reward metadata.
+type CreatureResolver interface {
+	Resolve(ctx context.Context, id int64) (creature.Creature, bool, error)
+}
 
 // CharacterRewarder credits gold/exp to a character.
 type CharacterRewarder interface {
@@ -47,6 +38,7 @@ type InventoryWriter interface {
 // Service orchestrates kill rewards across the character, quest, loot, and
 // inventory services.
 type Service struct {
+	creatures    CreatureResolver
 	charSvc      CharacterRewarder
 	questSvc     QuestProgressor
 	lootSvc      LootRoller
@@ -54,10 +46,10 @@ type Service struct {
 	eventBus     bus.EventBus
 }
 
-// New builds a Service. Any of questSvc, lootSvc, inventorySvc, or eventBus may
-// be nil, in which case the corresponding step is skipped (matching the prior
-// inline behaviour in combat).
+// New builds a Service. Any of creatures, questSvc, lootSvc, inventorySvc, or
+// eventBus may be nil, in which case the corresponding step is skipped.
 func New(
+	creatures CreatureResolver,
 	charSvc CharacterRewarder,
 	questSvc QuestProgressor,
 	lootSvc LootRoller,
@@ -65,6 +57,7 @@ func New(
 	eventBus bus.EventBus,
 ) *Service {
 	return &Service{
+		creatures:    creatures,
 		charSvc:      charSvc,
 		questSvc:     questSvc,
 		lootSvc:      lootSvc,
@@ -75,23 +68,22 @@ func New(
 
 // RewardKill advances kill quests, rolls the appropriate loot table, and applies
 // the drops. It returns the rolled loot so the caller can surface it in the
-// attack response. The killer/victim identity determines the loot table and the
-// quest target tag (dummy 9999 => "dummy_drops"/"wolf"; otherwise PvP).
+// attack response. The victim's resolved creature metadata determines the loot
+// table and the quest target tag.
 func (s *Service) RewardKill(ctx context.Context, killerID, victimID int64) []loot.DroppedItem {
-	// Resolve loot table + quest tag from the mob pack; fall back to the PvP
-	// defaults when the victim is a real character rather than a defined mob.
-	tableID := mobDefs.PvP.LootTableID
-	questTag := mobDefs.PvP.QuestTag
-	if mob, ok := mobDefs.Mobs[strconv.FormatInt(victimID, 10)]; ok {
-		tableID = mob.LootTableID
-		questTag = mob.QuestTag
+	var tableID, questTag string
+	if s.creatures != nil {
+		if victim, ok, err := s.creatures.Resolve(ctx, victimID); err == nil && ok {
+			tableID = victim.LootTableID
+			questTag = victim.QuestTag
+		}
 	}
 
-	if s.questSvc != nil {
+	if s.questSvc != nil && questTag != "" {
 		_ = s.questSvc.UpdateQuestProgress(ctx, int32(killerID), "KILL_MOB", questTag, 1)
 	}
 
-	if s.lootSvc == nil {
+	if s.lootSvc == nil || tableID == "" {
 		return nil
 	}
 

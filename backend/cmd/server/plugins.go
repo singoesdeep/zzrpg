@@ -718,7 +718,7 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 		charCreatureResolver{charService, mobs.PvP},
 	}
 
-	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
+	rewarder := killreward.New(creatures, charService, questService, lootService, invService, ic.Bus())
 	combatService := combat.NewCombatService(creatures, stat.client, sessionReg, rewarder, ic.Bus(), ic.Hooks(), skillResolver{skillService})
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
