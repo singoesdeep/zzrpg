@@ -1,7 +1,10 @@
 package httpx
 
 import (
+	"bufio"
+	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -12,6 +15,17 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status int
 	wrote  bool
+}
+
+// Hijack lets WebSocket upgrades pass through this wrapper: embedding
+// http.ResponseWriter does not promote the separate http.Hijacker interface, so
+// without this a wrapped /ws request fails with "does not implement
+// http.Hijacker". Delegates to the underlying writer when it supports hijacking.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("httpx: underlying ResponseWriter does not support hijacking")
 }
 
 func (r *statusRecorder) WriteHeader(code int) {

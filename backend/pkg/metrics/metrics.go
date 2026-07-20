@@ -5,6 +5,9 @@
 package metrics
 
 import (
+	"bufio"
+	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -96,4 +99,13 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 		r.wrote = true
 	}
 	return r.ResponseWriter.Write(b)
+}
+
+// Hijack delegates to the underlying writer so WebSocket upgrades survive this
+// wrapper (embedding does not promote http.Hijacker).
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := r.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, errors.New("metrics: underlying ResponseWriter does not support hijacking")
 }
