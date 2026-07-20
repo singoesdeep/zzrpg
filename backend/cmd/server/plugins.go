@@ -35,6 +35,14 @@ import (
 // idleConfig is the offline/idle reward pack, loaded once from embedded content.
 var idleConfig = content.MustLoadIdle()
 
+// readyStr renders a dependency's reachability for the readiness payload.
+func readyStr(ok bool) string {
+	if ok {
+		return "up"
+	}
+	return "down"
+}
+
 // nodeID returns a stable-per-process identifier for this node, used to tag and
 // de-duplicate events on the cross-node stream.
 func nodeID() string {
@@ -64,16 +72,17 @@ func adminOnly(jwtSecret string, h http.Handler) http.Handler {
 // ---------------------------------------------------------------------------
 
 type corePlugin struct {
-	db            *database.DB
-	cache         cache.Cache
-	closeCache    func() error
-	stat          *statHolder
-	hub           *socket.Hub
-	router        *socket.MessageRouter
-	sessionReg    *session.Registry
-	outboxRelay   *outbox.Relay
-	eventConsumer *eventstream.Consumer
-	closeStream   func() error
+	db              *database.DB
+	cache           cache.Cache
+	closeCache      func() error
+	stat            *statHolder
+	hub             *socket.Hub
+	router          *socket.MessageRouter
+	sessionReg      *session.Registry
+	outboxRelay     *outbox.Relay
+	outboxRetention time.Duration
+	eventConsumer   *eventstream.Consumer
+	closeStream     func() error
 }
 
 func (p *corePlugin) Meta() plugin.Meta { return plugin.Meta{Name: "core"} }
@@ -122,6 +131,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 	// Transactional outbox relay: dispatches events written in-tx (e.g. reward
 	// grants) onto the bus after commit.
 	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
+	p.outboxRetention = cfg.OutboxRetention
 
 	// Register every domain's event decoders on the shared registry, used by both
 	// the outbox relay and the cross-node event stream to rebuild typed events.
@@ -193,6 +203,30 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 		_, _ = w.Write([]byte(`{"status":"UP", "database":"OK"}`))
 	})
 
+	// Readiness probe: the database is a hard dependency (503 if down); Redis is
+	// soft (the app degrades gracefully), so it is reported but never fails
+	// readiness.
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		dbReady := p.db.Pool.Ping(ctx) == nil
+		redisReady := p.cache.Ping(ctx) == nil
+
+		status := http.StatusOK
+		if !dbReady {
+			status = http.StatusServiceUnavailable
+		}
+		body, _ := json.Marshal(map[string]interface{}{
+			"ready":    dbReady,
+			"database": readyStr(dbReady),
+			"redis":    readyStr(redisReady),
+		})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+		_, _ = w.Write(body)
+	})
+
 	// Swagger API docs.
 	mux.HandleFunc("GET /api/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -249,6 +283,7 @@ func (p *corePlugin) Init(ic plugin.InitContext) error {
 func (p *corePlugin) Start(rc plugin.RunContext) error {
 	go p.hub.Run()
 	go p.outboxRelay.Run(rc.Context(), time.Second)
+	go p.outboxRelay.RunPruner(rc.Context(), 10*time.Minute, p.outboxRetention)
 	if p.eventConsumer != nil {
 		go p.eventConsumer.Run(rc.Context())
 	}

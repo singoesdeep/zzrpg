@@ -18,6 +18,9 @@ type Cache interface {
 	Get(ctx context.Context, key string) (value []byte, found bool, err error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
+	// Ping reports whether the backend is reachable. Noop always reports nil
+	// (there is no backend to be unreachable — caching is simply disabled).
+	Ping(ctx context.Context) error
 }
 
 // Noop stores nothing; every Get is a miss. Used when Redis is unavailable so
@@ -27,6 +30,7 @@ type Noop struct{}
 func (Noop) Get(context.Context, string) ([]byte, bool, error)        { return nil, false, nil }
 func (Noop) Set(context.Context, string, []byte, time.Duration) error { return nil }
 func (Noop) Delete(context.Context, string) error                     { return nil }
+func (Noop) Ping(context.Context) error                               { return nil }
 
 type redisCache struct {
 	client *redis.Client
@@ -49,6 +53,10 @@ func (c *redisCache) Set(ctx context.Context, key string, value []byte, ttl time
 
 func (c *redisCache) Delete(ctx context.Context, key string) error {
 	return c.client.Del(ctx, key).Err()
+}
+
+func (c *redisCache) Ping(ctx context.Context) error {
+	return c.client.Ping(ctx).Err()
 }
 
 // NewRedis parses a redis:// URL, connects, and pings to verify reachability. It

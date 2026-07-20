@@ -26,6 +26,8 @@ func (f *fakeCache) Delete(_ context.Context, key string) error {
 	return nil
 }
 
+func (f *fakeCache) Ping(_ context.Context) error { return nil }
+
 // countingRepo wraps a LootRepository and counts GetLootTable calls so tests can
 // assert whether a read was served from cache or hit the source.
 type countingRepo struct {

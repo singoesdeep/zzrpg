@@ -906,3 +906,55 @@ func migrateTestDB(t *testing.T, pool *pgxpool.Pool) {
 		t.Fatalf("run migrations: %v", err)
 	}
 }
+
+// TestOutboxPruneRemovesOldPublished proves the relay prunes only dispatched
+// (published) rows older than the retention, keeping recent-published and
+// undispatched rows. Requires PostgreSQL.
+func TestOutboxPruneRemovesOldPublished(t *testing.T) {
+	dbURL := "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		t.Skip("PostgreSQL not accessible, skipping outbox prune test.")
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Skip("PostgreSQL running but ping failed, skipping outbox prune test.")
+	}
+	migrateTestDB(t, pool)
+
+	et := fmt.Sprintf("prune_test_%d", time.Now().UnixNano())
+	// old published (2 days ago), recent published (now), and undispatched.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO outbox (event_type, payload, occurred_at, published_at) VALUES
+			($1, '{}', now() - interval '2 days', now() - interval '2 days'),
+			($1, '{}', now(), now()),
+			($1, '{}', now(), NULL)`, et)
+	if err != nil {
+		t.Fatalf("seed outbox: %v", err)
+	}
+
+	relay := outbox.NewRelay(store.New(pool), bus.NewInProc(nil), nil)
+	if _, err := relay.Prune(ctx, 24*time.Hour); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+
+	var total, oldPublished int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM outbox WHERE event_type = $1`, et).Scan(&total); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM outbox WHERE event_type = $1 AND published_at IS NOT NULL AND published_at < now() - interval '1 day'`, et,
+	).Scan(&oldPublished); err != nil {
+		t.Fatalf("count old: %v", err)
+	}
+
+	if oldPublished != 0 {
+		t.Errorf("old published rows should be pruned, %d remain", oldPublished)
+	}
+	if total != 2 {
+		t.Errorf("expected the recent-published and undispatched rows to survive (2), got %d", total)
+	}
+
+	_, _ = pool.Exec(context.Background(), `DELETE FROM outbox WHERE event_type = $1`, et)
+}

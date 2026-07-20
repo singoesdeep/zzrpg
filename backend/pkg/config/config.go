@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -21,6 +22,10 @@ type Config struct {
 	RateLimitRPS   float64 // sustained requests/sec allowed per client IP
 	RateLimitBurst int     // burst size above the sustained rate
 	MaxBodyBytes   int64   // max accepted request body size in bytes
+
+	// OutboxRetention is how long dispatched (published) outbox rows are kept
+	// before the relay prunes them. <=0 disables pruning.
+	OutboxRetention time.Duration
 }
 
 func LoadConfig() (*Config, error) {
@@ -35,9 +40,10 @@ func LoadConfig() (*Config, error) {
 		JWTSecret:     getEnv("JWT_SECRET", ""),
 		Env:           getEnv("ENV", "development"),
 
-		RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 20),
-		RateLimitBurst: getEnvInt("RATE_LIMIT_BURST", 40),
-		MaxBodyBytes:   int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
+		RateLimitRPS:    getEnvFloat("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 40),
+		MaxBodyBytes:    int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
+		OutboxRetention: getEnvDuration("OUTBOX_RETENTION", 24*time.Hour),
 	}
 
 	// Fail fast on insecure configuration in production instead of silently
@@ -80,6 +86,15 @@ func getEnvFloat(key string, defaultValue float64) float64 {
 	if value, exists := os.LookupEnv(key); exists {
 		if f, err := strconv.ParseFloat(value, 64); err == nil {
 			return f
+		}
+	}
+	return defaultValue
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value, exists := os.LookupEnv(key); exists {
+		if d, err := time.ParseDuration(value); err == nil {
+			return d
 		}
 	}
 	return defaultValue

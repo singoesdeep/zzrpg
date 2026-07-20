@@ -99,6 +99,45 @@ func (r *Relay) Dispatch(ctx context.Context) (int, error) {
 	return dispatched, nil
 }
 
+// Prune deletes dispatched (published) outbox rows older than retention, keeping
+// the table from growing without bound. Undispatched rows are never removed. It
+// returns the number of rows deleted.
+func (r *Relay) Prune(ctx context.Context, retention time.Duration) (int64, error) {
+	tag, err := r.store.Exec(ctx,
+		`DELETE FROM outbox WHERE published_at IS NOT NULL AND published_at < now() - make_interval(secs => $1)`,
+		retention.Seconds(),
+	)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// RunPruner prunes dispatched rows older than retention every interval until ctx
+// is cancelled. retention <= 0 disables pruning (returns immediately).
+func (r *Relay) RunPruner(ctx context.Context, interval, retention time.Duration) {
+	if retention <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n, err := r.Prune(ctx, retention)
+			if err != nil {
+				r.log.Error("outbox: prune failed", "error", err)
+				continue
+			}
+			if n > 0 {
+				r.log.Info("outbox: pruned dispatched rows", "count", n)
+			}
+		}
+	}
+}
+
 // Run polls at interval until ctx is cancelled. Dispatch errors are logged and
 // retried on the next tick.
 func (r *Relay) Run(ctx context.Context, interval time.Duration) {
