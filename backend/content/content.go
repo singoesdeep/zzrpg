@@ -400,6 +400,10 @@ type Generator struct {
 	BasePerMin float64 `json:"base_per_min"`
 	PerLevel   float64 `json:"per_level"`
 	LevelVar   string  `json:"level_var"`
+	// MaxLevel caps upgrades (0 = uncapped). UpgradeCost is the base wallet cost
+	// to reach level 1; the cost to reach level N scales by N.
+	MaxLevel    int32            `json:"max_level"`
+	UpgradeCost map[string]int64 `json:"upgrade_cost"`
 }
 
 // GeneratorPack is the RTS resource-generator content.

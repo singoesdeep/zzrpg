@@ -77,6 +77,11 @@ func (c *Catalog) Generator(id string) (content.Generator, bool) {
 	return g, ok
 }
 
+// StageIDs / LifeskillIDs / GeneratorIDs return the content ids in load order.
+func (c *Catalog) StageIDs() []string     { return append([]string(nil), c.stageOrder...) }
+func (c *Catalog) LifeskillIDs() []string { return append([]string(nil), c.lifeskillOrder...) }
+func (c *Catalog) GeneratorIDs() []string { return append([]string(nil), c.generatorOrder...) }
+
 // Power reduces a character's derived stats to a single combat-power scalar
 // using the content-defined weights (sum of stat*weight). Missing stats count
 // as zero, so the formula is fully data-driven.
