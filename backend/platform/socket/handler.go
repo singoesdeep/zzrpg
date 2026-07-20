@@ -15,11 +15,15 @@ type Authenticator func(token string) (userID int64, username string, ok bool)
 // ServeWS returns the /ws HTTP handler. baseCtx is the parent for every
 // connection's context (typically the server's run context) so in-flight
 // message handling is cancelled on server shutdown as well as on disconnect.
-// authenticate validates the ?token query parameter.
-func ServeWS(baseCtx context.Context, hub *Hub, authenticate Authenticator, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
-	// Configure upgrader to allow all origins in development
+// authenticate validates the ?token query parameter. allowOrigin guards the
+// upgrade against cross-site WebSocket hijacking; when nil, all origins are
+// allowed (development/tests only).
+func ServeWS(baseCtx context.Context, hub *Hub, authenticate Authenticator, allowOrigin func(origin string) bool, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
 	upgrader.CheckOrigin = func(r *http.Request) bool {
-		return true
+		if allowOrigin == nil {
+			return true
+		}
+		return allowOrigin(r.Header.Get("Origin"))
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {

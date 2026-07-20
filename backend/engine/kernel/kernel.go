@@ -114,11 +114,12 @@ func (k *Kernel) Run(ctx context.Context) error {
 	}
 
 	// Middleware chain, outermost first: recover from panics, assign a request
-	// id, log the request, set security headers, rate-limit per client IP, and
-	// cap the request body — then the router.
+	// id, log the request, set security headers, apply CORS, rate-limit per
+	// client IP, and cap the request body — then the router.
 	var handler http.Handler = k.mux
 	handler = httpx.MaxBodyBytes(k.cfg.MaxBodyBytes)(handler)
 	handler = httpx.RateLimit(k.cfg.RateLimitRPS, k.cfg.RateLimitBurst, k.log)(handler)
+	handler = httpx.CORS(k.cfg.AllowOrigin)(handler)
 	handler = httpx.SecureHeaders(handler)
 	handler = k.metrics.Middleware(handler)
 	handler = httpx.RequestLogger(k.log)(handler)

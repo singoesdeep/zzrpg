@@ -195,7 +195,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	mux.HandleFunc("POST /api/v1/auth/register", auth.RegisterHandler(authService))
 	mux.HandleFunc("POST /api/v1/auth/login", auth.LoginHandler(authService))
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(jwtSecret)(character.CreateHandler(charService)))
-	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), wsMsgHandler, wsDisconnectHandler))
+	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), nil, wsMsgHandler, wsDisconnectHandler))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -386,7 +386,7 @@ func TestDoubleSessionOverride(t *testing.T) {
 	mux.HandleFunc("POST /api/v1/auth/register", auth.RegisterHandler(authService))
 	mux.HandleFunc("POST /api/v1/auth/login", auth.LoginHandler(authService))
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(jwtSecret)(character.CreateHandler(charService)))
-	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), wsMsgHandler, nil))
+	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), nil, wsMsgHandler, nil))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -574,7 +574,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	mux.HandleFunc("POST /api/v1/auth/register", auth.RegisterHandler(authService))
 	mux.HandleFunc("POST /api/v1/auth/login", auth.LoginHandler(authService))
 	mux.Handle("POST /api/v1/characters", auth.AuthMiddleware(jwtSecret)(character.CreateHandler(charService)))
-	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), wsMsgHandler, nil))
+	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth(jwtSecret), nil, wsMsgHandler, nil))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -724,7 +724,7 @@ func TestInvalidJWTToken(t *testing.T) {
 	mux := http.NewServeMux()
 	hub := socket.NewHub()
 	go hub.Run()
-	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth("my-secret"), nil, nil))
+	mux.HandleFunc("/ws", socket.ServeWS(context.Background(), hub, wsAuth("my-secret"), nil, nil, nil))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()

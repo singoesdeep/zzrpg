@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -17,6 +18,12 @@ type Config struct {
 	ZzstatGRPCURL string
 	JWTSecret     string
 	Env           string
+
+	// AllowedOrigins is the browser Origin allowlist for CORS and WebSocket
+	// upgrades, parsed from ALLOWED_ORIGINS (comma-separated). A single "*"
+	// entry allows any origin. Empty means: allow all in development, deny
+	// cross-origin in production. See AllowOrigin.
+	AllowedOrigins []string
 
 	// HTTP hardening.
 	RateLimitRPS   float64 // sustained requests/sec allowed per client IP
@@ -37,12 +44,13 @@ func LoadConfig() (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Port:          getEnv("PORT", "8080"),
-		DatabaseURL:   getEnv("DATABASE_URL", "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"),
-		RedisURL:      getEnv("REDIS_URL", "redis://localhost:6379/0"),
-		ZzstatGRPCURL: getEnv("ZZSTAT_GRPC_URL", "localhost:50051"),
-		JWTSecret:     getEnv("JWT_SECRET", ""),
-		Env:           getEnv("ENV", "development"),
+		Port:           getEnv("PORT", "8080"),
+		DatabaseURL:    getEnv("DATABASE_URL", "postgres://postgres:password123@localhost:5432/zzrpg?sslmode=disable"),
+		RedisURL:       getEnv("REDIS_URL", "redis://localhost:6379/0"),
+		ZzstatGRPCURL:  getEnv("ZZSTAT_GRPC_URL", "localhost:50051"),
+		JWTSecret:      getEnv("JWT_SECRET", ""),
+		Env:            getEnv("ENV", "development"),
+		AllowedOrigins: parseCSV(getEnv("ALLOWED_ORIGINS", "")),
 
 		RateLimitRPS:    getEnvFloat("RATE_LIMIT_RPS", 20),
 		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 40),
@@ -71,6 +79,43 @@ func LoadConfig() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// AllowOrigin reports whether a browser Origin header value is permitted for
+// CORS responses and WebSocket upgrades. An empty origin (non-browser client,
+// e.g. a native game client or server-to-server call) is always allowed since
+// it is not subject to the browser same-origin policy. With no configured
+// allowlist, development permits any origin for convenience and production
+// denies cross-origin requests (same-origin only).
+func (c *Config) AllowOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	if len(c.AllowedOrigins) == 0 {
+		return c.Env != "production"
+	}
+	for _, o := range c.AllowedOrigins {
+		if o == "*" || strings.EqualFold(o, origin) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseCSV splits a comma-separated list, trimming whitespace and dropping
+// empty entries.
+func parseCSV(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getEnv(key, defaultValue string) string {

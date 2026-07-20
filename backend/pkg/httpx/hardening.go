@@ -57,6 +57,39 @@ func SecureHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// CORS applies cross-origin resource sharing headers based on an injected
+// origin policy (typically config.AllowOrigin), keeping this package free of any
+// config dependency. For an allowed, non-empty Origin it reflects the origin,
+// varies on Origin, and permits credentials; a browser preflight (OPTIONS with
+// Access-Control-Request-Method) is answered with 204. Requests without an
+// Origin header (non-browser clients) pass through untouched. A disallowed
+// origin receives no CORS headers, so the browser blocks the cross-origin read.
+func CORS(allow func(origin string) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin != "" && allow(origin) {
+				h := w.Header()
+				h.Set("Access-Control-Allow-Origin", origin)
+				h.Add("Vary", "Origin")
+				h.Set("Access-Control-Allow-Credentials", "true")
+				if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+					h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+					reqHeaders := r.Header.Get("Access-Control-Request-Headers")
+					if reqHeaders == "" {
+						reqHeaders = "Authorization, Content-Type"
+					}
+					h.Set("Access-Control-Allow-Headers", reqHeaders)
+					h.Set("Access-Control-Max-Age", "600")
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // MaxBodyBytes caps request body size (0 disables). Reads past the limit fail,
 // so oversized payloads can't exhaust memory.
 func MaxBodyBytes(n int64) func(http.Handler) http.Handler {

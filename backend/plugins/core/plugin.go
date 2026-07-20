@@ -167,7 +167,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	}
 
 	p.registerHTTPEndpoints(mux, reg, log)
-	p.registerWebSocket(ctx, mux, reg, cfg.JWTSecret)
+	p.registerWebSocket(ctx, mux, reg, cfg.JWTSecret, cfg.AllowOrigin)
 
 	return nil
 }
@@ -317,7 +317,7 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 	})
 }
 
-func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, jwtSecret string) {
+func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, jwtSecret string, allowOrigin func(origin string) bool) {
 	p.router.Handle("CHAT", func(client *socket.Client, msg socket.WSMessage) {
 		var payload socket.ChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -352,7 +352,7 @@ func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *
 		}
 		return claims.UserID, claims.Username, true
 	}
-	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, authenticate, p.router.Dispatch, disconnect))
+	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, authenticate, allowOrigin, p.router.Dispatch, disconnect))
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {
