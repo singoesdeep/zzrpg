@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -15,6 +16,11 @@ type Config struct {
 	ZzstatGRPCURL string
 	JWTSecret     string
 	Env           string
+
+	// HTTP hardening.
+	RateLimitRPS   float64 // sustained requests/sec allowed per client IP
+	RateLimitBurst int     // burst size above the sustained rate
+	MaxBodyBytes   int64   // max accepted request body size in bytes
 }
 
 func LoadConfig() (*Config, error) {
@@ -28,6 +34,10 @@ func LoadConfig() (*Config, error) {
 		ZzstatGRPCURL: getEnv("ZZSTAT_GRPC_URL", "localhost:50051"),
 		JWTSecret:     getEnv("JWT_SECRET", ""),
 		Env:           getEnv("ENV", "development"),
+
+		RateLimitRPS:   getEnvFloat("RATE_LIMIT_RPS", 20),
+		RateLimitBurst: getEnvInt("RATE_LIMIT_BURST", 40),
+		MaxBodyBytes:   int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
 	}
 
 	// Fail fast on insecure configuration in production instead of silently
@@ -53,6 +63,24 @@ func LoadConfig() (*Config, error) {
 func getEnv(key, defaultValue string) string {
 	if value, exists := os.LookupEnv(key); exists {
 		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value, exists := os.LookupEnv(key); exists {
+		if n, err := strconv.Atoi(value); err == nil {
+			return n
+		}
+	}
+	return defaultValue
+}
+
+func getEnvFloat(key string, defaultValue float64) float64 {
+	if value, exists := os.LookupEnv(key); exists {
+		if f, err := strconv.ParseFloat(value, 64); err == nil {
+			return f
+		}
 	}
 	return defaultValue
 }

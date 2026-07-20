@@ -78,9 +78,16 @@ func (k *Kernel) Run(ctx context.Context) error {
 		}
 	}
 
-	// Wrap the router with panic recovery (outermost) and request logging,
-	// matching the previous main() setup.
-	handler := httpx.Recover(k.log)(httpx.RequestLogger(k.log)(k.mux))
+	// Middleware chain, outermost first: recover from panics, assign a request
+	// id, log the request, set security headers, rate-limit per client IP, and
+	// cap the request body — then the router.
+	var handler http.Handler = k.mux
+	handler = httpx.MaxBodyBytes(k.cfg.MaxBodyBytes)(handler)
+	handler = httpx.RateLimit(k.cfg.RateLimitRPS, k.cfg.RateLimitBurst, k.log)(handler)
+	handler = httpx.SecureHeaders(handler)
+	handler = httpx.RequestLogger(k.log)(handler)
+	handler = httpx.RequestID(handler)
+	handler = httpx.Recover(k.log)(handler)
 	srv := &http.Server{
 		Addr:         ":" + k.cfg.Port,
 		Handler:      handler,
