@@ -34,6 +34,11 @@ type Config struct {
 	// before the relay prunes them. <=0 disables pruning.
 	OutboxRetention time.Duration
 
+	// IdleTickInterval is how often the idle plugin accrues real-time progress
+	// for online characters and pushes IDLE_TICK. Kept comfortably above the idle
+	// minimum-elapsed gate so each tick reliably grants.
+	IdleTickInterval time.Duration
+
 	// Token lifetimes.
 	AccessTokenTTL  time.Duration // short-lived JWT access token
 	RefreshTokenTTL time.Duration // long-lived, rotating refresh token
@@ -52,10 +57,11 @@ func LoadConfig() (*Config, error) {
 		Env:            getEnv("ENV", "development"),
 		AllowedOrigins: parseCSV(getEnv("ALLOWED_ORIGINS", "")),
 
-		RateLimitRPS:    getEnvFloat("RATE_LIMIT_RPS", 20),
-		RateLimitBurst:  getEnvInt("RATE_LIMIT_BURST", 40),
-		MaxBodyBytes:    int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
-		OutboxRetention: getEnvDuration("OUTBOX_RETENTION", 24*time.Hour),
+		RateLimitRPS:     getEnvFloat("RATE_LIMIT_RPS", 20),
+		RateLimitBurst:   getEnvInt("RATE_LIMIT_BURST", 40),
+		MaxBodyBytes:     int64(getEnvInt("MAX_BODY_BYTES", 1<<20)), // 1 MiB
+		OutboxRetention:  getEnvDuration("OUTBOX_RETENTION", 24*time.Hour),
+		IdleTickInterval: getEnvDuration("IDLE_TICK_INTERVAL", 15*time.Second),
 
 		AccessTokenTTL:  getEnvDuration("ACCESS_TOKEN_TTL", 15*time.Minute),
 		RefreshTokenTTL: getEnvDuration("REFRESH_TOKEN_TTL", 30*24*time.Hour),

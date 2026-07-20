@@ -3,6 +3,8 @@ package idle
 import (
 	"context"
 	"encoding/json"
+	"sync"
+	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
@@ -19,21 +21,27 @@ import (
 
 type Plugin struct {
 	plugin.Base
-	svc   *idle.Service
-	chars character.CharacterService
-	hub   *socket.Hub
+	svc          *idle.Service
+	chars        character.CharacterService
+	hub          *socket.Hub
+	tickInterval time.Duration
+
+	// online is the set of connected characters accruing real-time progress.
+	mu     sync.Mutex
+	online map[int64]struct{}
 }
 
 func (*Plugin) AdminInfo() admin.Info {
 	return admin.Info{
 		Title:       "Idle Progression",
-		Description: "Content-driven offline/idle activities: combat stages, gathering lifeskills, and RTS resource generators",
+		Description: "Content-driven idle activities: combat stages, gathering lifeskills, and RTS resource generators, with offline + real-time online accrual",
 		Icon:        "fa-moon",
 		Category:    "Economy",
 		Endpoints: []string{
 			"GET /api/v1/characters/{id}/idle/state",
 			"POST /api/v1/characters/{id}/idle/assign",
 			"EVENT: CharacterLoggedIn -> OFFLINE_GAINS",
+			"TICK: IDLE_TICK",
 		},
 	}
 }
@@ -49,6 +57,8 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	invSvc := registry.MustResolve[inventory.InventoryService](reg, "inventory")
 	p.hub = registry.MustResolve[*socket.Hub](reg, "hub")
 	db := registry.MustResolve[*database.DB](reg, "db")
+	p.tickInterval = ic.Config().IdleTickInterval
+	p.online = make(map[int64]struct{})
 
 	p.svc = idle.NewService(idle.Deps{
 		Chars:       p.chars,
@@ -73,8 +83,9 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {
-	// Activation gating is handled by the plugin-scoped bus, so this handler
-	// automatically stops firing while the idle plugin is deactivated.
+	// On login: grant the offline window, then start accruing in real time.
+	// Activation gating is handled by the plugin-scoped bus, so these handlers
+	// stop firing while the idle plugin is deactivated.
 	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
 		e, ok := ev.(character.CharacterLoggedIn)
 		if !ok {
@@ -84,9 +95,6 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 		if err != nil {
 			return
 		}
-		// The active focus (stage / lifeskill) and building/skill levels come from
-		// the character's persisted idle state; a character with no assignment
-		// falls back to the starter stage. Output scales with combat power.
 		power := p.svc.Power(char.Stats.DerivedStats)
 		grant, granted, err := p.svc.Accrue(ctx, idle.AccrualRequest{
 			CharacterID: e.CharacterID,
@@ -94,36 +102,104 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 			Power:       power,
 			Level:       char.Level,
 		})
-		if err != nil || !granted {
-			return
+		if err == nil && granted {
+			p.pushGrant(e.CharacterID, "OFFLINE_GAINS", grant)
+			_ = rc.Bus().Publish(ctx, character.OfflineGainsGranted{
+				CharacterID: e.CharacterID, ElapsedSeconds: grant.ElapsedSeconds,
+				Gold: grant.Gold, Exp: grant.Exp, LeveledUp: grant.LeveledUp,
+				NewLevel: grant.NewLevel, Loot: grant.Loot,
+			})
 		}
-
-		gainsSummary, _ := json.Marshal(map[string]interface{}{
-			"type": "OFFLINE_GAINS",
-			"payload": map[string]interface{}{
-				"elapsed_seconds":    grant.ElapsedSeconds,
-				"gained_gold":        grant.Gold,
-				"gained_exp":         grant.Exp,
-				"leveled_up":         grant.LeveledUp,
-				"new_level":          grant.NewLevel,
-				"loot":               grant.Loot,
-				"resources":          grant.Resources,
-				"lifeskill_levelups": grant.LifeskillLevelUps,
-			},
-		})
-		if client, exists := p.hub.GetClientByCharacterID(e.CharacterID); exists {
-			client.Send <- gainsSummary
-		}
-
-		_ = rc.Bus().Publish(ctx, character.OfflineGainsGranted{
-			CharacterID:    e.CharacterID,
-			ElapsedSeconds: grant.ElapsedSeconds,
-			Gold:           grant.Gold,
-			Exp:            grant.Exp,
-			LeveledUp:      grant.LeveledUp,
-			NewLevel:       grant.NewLevel,
-			Loot:           grant.Loot,
-		})
+		p.setOnline(e.CharacterID, true)
 	})
+
+	rc.Bus().Subscribe(character.EventCharacterLoggedOut, func(_ context.Context, ev bus.Event) {
+		if e, ok := ev.(character.CharacterLoggedOut); ok {
+			p.setOnline(e.CharacterID, false)
+		}
+	})
+
+	go p.runTicker(rc.Context())
 	return nil
+}
+
+// runTicker accrues real-time progress for every online character on each tick.
+func (p *Plugin) runTicker(ctx context.Context) {
+	if p.tickInterval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(p.tickInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			for _, charID := range p.onlineSnapshot() {
+				p.tickCharacter(ctx, charID)
+			}
+		}
+	}
+}
+
+// tickCharacter accrues one character's progress since its last accrual point
+// (its persisted last_active), pushes the delta, and advances last_active so the
+// next tick — and any crash-recovery offline grant — starts from here.
+func (p *Plugin) tickCharacter(ctx context.Context, charID int64) {
+	char, err := p.chars.GetByID(ctx, charID)
+	if err != nil {
+		return
+	}
+	power := p.svc.Power(char.Stats.DerivedStats)
+	grant, granted, err := p.svc.Accrue(ctx, idle.AccrualRequest{
+		CharacterID: charID,
+		Since:       char.LastActiveAt,
+		Power:       power,
+		Level:       char.Level,
+	})
+	if err != nil || !granted {
+		return // below the min-elapsed gate: accumulate into the next tick
+	}
+	_ = p.chars.UpdateLastActive(ctx, charID)
+	p.pushGrant(charID, "IDLE_TICK", grant)
+}
+
+func (p *Plugin) setOnline(charID int64, on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if on {
+		p.online[charID] = struct{}{}
+	} else {
+		delete(p.online, charID)
+	}
+}
+
+func (p *Plugin) onlineSnapshot() []int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ids := make([]int64, 0, len(p.online))
+	for id := range p.online {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// pushGrant sends a grant summary to the character's connected client, if any.
+func (p *Plugin) pushGrant(charID int64, msgType string, grant idle.Grant) {
+	msg, _ := json.Marshal(map[string]interface{}{
+		"type": msgType,
+		"payload": map[string]interface{}{
+			"elapsed_seconds":    grant.ElapsedSeconds,
+			"gained_gold":        grant.Gold,
+			"gained_exp":         grant.Exp,
+			"leveled_up":         grant.LeveledUp,
+			"new_level":          grant.NewLevel,
+			"loot":               grant.Loot,
+			"resources":          grant.Resources,
+			"lifeskill_levelups": grant.LifeskillLevelUps,
+		},
+	})
+	if client, exists := p.hub.GetClientByCharacterID(charID); exists {
+		client.Send <- msg
+	}
 }
