@@ -1,0 +1,35 @@
+{
+  "power_weights": { "ATTACK": 1.0, "DEFENSE": 0.6, "HP": 0.1, "CRIT_RATE": 0.5, "MP": 0.05 },
+  "stages": [
+    {
+      "id": "training_yard",
+      "name": "Training Yard",
+      "requires": { "min_level": 1, "power": 0 },
+      "difficulty_power": 40,
+      "base_kills_per_min": 6,
+      "kill_reward": { "gold": 3, "exp": 4 },
+      "loot_table_id": "dummy_drops",
+      "efficiency": { "floor_ratio": 0.5, "cap_ratio": 2.0 }
+    },
+    {
+      "id": "goblin_forest",
+      "name": "Goblin Forest",
+      "requires": { "min_level": 5, "power": 120 },
+      "difficulty_power": 150,
+      "base_kills_per_min": 8,
+      "kill_reward": { "gold": 5, "exp": 7 },
+      "loot_table_id": "dummy_drops",
+      "efficiency": { "floor_ratio": 0.6, "cap_ratio": 2.5 }
+    },
+    {
+      "id": "dragon_peak",
+      "name": "Dragon Peak",
+      "requires": { "min_level": 20, "power": 600 },
+      "difficulty_power": 800,
+      "base_kills_per_min": 10,
+      "kill_reward": { "gold": 18, "exp": 25 },
+      "loot_table_id": "dummy_drops",
+      "efficiency": { "floor_ratio": 0.7, "cap_ratio": 2.0 }
+    }
+  ]
+}

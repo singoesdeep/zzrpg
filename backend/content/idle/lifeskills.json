@@ -1,0 +1,25 @@
+{
+  "lifeskills": [
+    {
+      "id": "mining",
+      "name": "Mining",
+      "yield_per_min": { "base": 3, "per_level": 0.4 },
+      "xp_per_unit": 2,
+      "nodes": [
+        { "id": "copper_ore", "requires_level": 1,  "item_definition_id": "copper_ore", "weight": 70 },
+        { "id": "iron_ore",   "requires_level": 10, "item_definition_id": "iron_ore",   "weight": 25 },
+        { "id": "mithril_ore","requires_level": 25, "item_definition_id": "mithril_ore","weight": 5 }
+      ]
+    },
+    {
+      "id": "fishing",
+      "name": "Fishing",
+      "yield_per_min": { "base": 4, "per_level": 0.3 },
+      "xp_per_unit": 2,
+      "nodes": [
+        { "id": "carp",   "requires_level": 1,  "item_definition_id": "raw_carp",   "weight": 80 },
+        { "id": "salmon", "requires_level": 12, "item_definition_id": "raw_salmon", "weight": 20 }
+      ]
+    }
+  ]
+}

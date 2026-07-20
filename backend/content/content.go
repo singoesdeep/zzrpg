@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json loot/tables.json skills/skills.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json idle/stages.json idle/lifeskills.json idle/generators.json loot/tables.json skills/skills.json
 var files embed.FS
 
 // overrideDir, when non-empty, is searched (by relative path) before the embedded
@@ -269,6 +269,164 @@ func MustLoadIdle() *IdleConfig {
 		panic(err)
 	}
 	return c
+}
+
+// StageRequirement gates access to an idle stage: the character must be at least
+// MinLevel and have at least Power (the combat-power scalar). A zero field is no
+// constraint.
+type StageRequirement struct {
+	MinLevel int32   `json:"min_level"`
+	Power    float64 `json:"power"`
+}
+
+// KillReward is the per-kill gold/exp a stage grants.
+type KillReward struct {
+	Gold float64 `json:"gold"`
+	Exp  float64 `json:"exp"`
+}
+
+// EfficiencyCurve maps a character's power/difficulty ratio to a reward
+// multiplier: below FloorRatio the character is too weak to make progress
+// (efficiency 0); at or above it efficiency equals the ratio, clamped to
+// CapRatio so massive over-levelling gives diminishing returns.
+type EfficiencyCurve struct {
+	FloorRatio float64 `json:"floor_ratio"`
+	CapRatio   float64 `json:"cap_ratio"`
+}
+
+// Stage is a combat idle location. Offline gains scale with how the character's
+// combat power compares to DifficultyPower (see EfficiencyCurve).
+type Stage struct {
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Requires        StageRequirement `json:"requires"`
+	DifficultyPower float64          `json:"difficulty_power"`
+	BaseKillsPerMin float64          `json:"base_kills_per_min"`
+	KillReward      KillReward       `json:"kill_reward"`
+	LootTableID     string           `json:"loot_table_id"`
+	Efficiency      EfficiencyCurve  `json:"efficiency"`
+}
+
+// StagePack is the combat-idle content: a shared power-scalar weighting over
+// derived stats plus the ordered stage list.
+type StagePack struct {
+	PowerWeights map[string]float64 `json:"power_weights"`
+	Stages       []Stage            `json:"stages"`
+}
+
+// LifeskillYield is a gathering rate: Base units per minute plus PerLevel per
+// skill level.
+type LifeskillYield struct {
+	Base     float64 `json:"base"`
+	PerLevel float64 `json:"per_level"`
+}
+
+// LifeskillNode is one gatherable resource, unlocked at RequiresLevel and drawn
+// with the given relative Weight among the unlocked nodes.
+type LifeskillNode struct {
+	ID               string `json:"id"`
+	RequiresLevel    int32  `json:"requires_level"`
+	ItemDefinitionID string `json:"item_definition_id"`
+	Weight           int    `json:"weight"`
+}
+
+// Lifeskill is a gathering profession (mining, fishing, …). Offline yield scales
+// with the character's level in this skill, not combat power — a separate
+// progression axis.
+type Lifeskill struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	YieldPerMin LifeskillYield  `json:"yield_per_min"`
+	XPPerUnit   float64         `json:"xp_per_unit"`
+	Nodes       []LifeskillNode `json:"nodes"`
+}
+
+// LifeskillPack is the gathering-idle content.
+type LifeskillPack struct {
+	Lifeskills []Lifeskill `json:"lifeskills"`
+}
+
+// LoadStages reads the embedded combat-idle stage pack.
+func LoadStages() (*StagePack, error) {
+	raw, err := readContent("idle/stages.json")
+	if err != nil {
+		return nil, fmt.Errorf("read stages.json: %w", err)
+	}
+	var p StagePack
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, fmt.Errorf("parse stages.json: %w", err)
+	}
+	return &p, nil
+}
+
+// MustLoadStages is LoadStages but panics on error.
+func MustLoadStages() *StagePack {
+	p, err := LoadStages()
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+// LoadLifeskills reads the embedded gathering-idle lifeskill pack.
+func LoadLifeskills() (*LifeskillPack, error) {
+	raw, err := readContent("idle/lifeskills.json")
+	if err != nil {
+		return nil, fmt.Errorf("read lifeskills.json: %w", err)
+	}
+	var p LifeskillPack
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, fmt.Errorf("parse lifeskills.json: %w", err)
+	}
+	return &p, nil
+}
+
+// MustLoadLifeskills is LoadLifeskills but panics on error.
+func MustLoadLifeskills() *LifeskillPack {
+	p, err := LoadLifeskills()
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
+// Generator is an RTS-style passive resource producer: it emits Resource at
+// BasePerMin plus PerLevel per unit of the State variable named LevelVar (e.g.
+// "building_level"). It needs neither combat power nor a lifeskill level, which
+// is what makes the idle framework general enough for pure resource games.
+type Generator struct {
+	ID         string  `json:"id"`
+	Resource   string  `json:"resource"`
+	BasePerMin float64 `json:"base_per_min"`
+	PerLevel   float64 `json:"per_level"`
+	LevelVar   string  `json:"level_var"`
+}
+
+// GeneratorPack is the RTS resource-generator content.
+type GeneratorPack struct {
+	Generators []Generator `json:"generators"`
+}
+
+// LoadGenerators reads the embedded RTS resource-generator pack.
+func LoadGenerators() (*GeneratorPack, error) {
+	raw, err := readContent("idle/generators.json")
+	if err != nil {
+		return nil, fmt.Errorf("read generators.json: %w", err)
+	}
+	var p GeneratorPack
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, fmt.Errorf("parse generators.json: %w", err)
+	}
+	return &p, nil
+}
+
+// MustLoadGenerators is LoadGenerators but panics on error.
+func MustLoadGenerators() *GeneratorPack {
+	p, err := LoadGenerators()
+	if err != nil {
+		panic(err)
+	}
+	return p
 }
 
 // MustLoadMobs is LoadMobs but panics on error.

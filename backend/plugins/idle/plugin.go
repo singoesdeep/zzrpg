@@ -53,7 +53,18 @@ func (p *Plugin) Start(rc plugin.RunContext) error {
 		if err != nil {
 			return
 		}
-		grant, granted, err := idleSvc.GrantOffline(ctx, e.CharacterID, char.Stats.BaseStats, e.LastActiveAt)
+		// Default assignment: the starter combat stage. Per-character activity
+		// selection (stage / lifeskill / generator) and skill/building levels are
+		// Phase-2 persistence; for now everyone idles at the training yard, scaled
+		// by their combat power.
+		power := idleSvc.Power(char.Stats.DerivedStats)
+		req := idle.OfflineRequest{
+			CharacterID:  e.CharacterID,
+			LastActiveAt: e.LastActiveAt,
+			Assignment:   idle.StageAssignment("training_yard"),
+			State:        idle.BuildState(power, char.Level, 0, 0),
+		}
+		grant, granted, err := idleSvc.GrantOffline(ctx, req)
 		if err != nil || !granted {
 			return
 		}

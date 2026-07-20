@@ -1,0 +1,6 @@
+{
+  "generators": [
+    { "id": "lumber_mill", "resource": "wood",  "base_per_min": 5, "per_level": 2.0, "level_var": "building_level" },
+    { "id": "quarry",      "resource": "stone", "base_per_min": 3, "per_level": 1.5, "level_var": "building_level" }
+  ]
+}
