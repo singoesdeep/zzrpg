@@ -3,19 +3,14 @@ package combat
 import (
 	"context"
 	"errors"
-	"strconv"
 
-	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
-	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/internal/creature"
 	"github.com/singoesdeep/zzrpg/backend/internal/loot"
 	"github.com/singoesdeep/zzrpg/backend/internal/session"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
-
-// mobDefs is the mob content pack, loaded once from embedded content.
-var mobDefs = content.MustLoadMobs()
 
 // KillRewarder handles the side effects of a kill — quest progress, loot roll,
 // and applying drops (gold/items) — and returns the rolled loot so the attack
@@ -25,13 +20,6 @@ var mobDefs = content.MustLoadMobs()
 // kill rewards) lives behind this seam. Implemented by internal/killreward.
 type KillRewarder interface {
 	RewardKill(ctx context.Context, killerID, victimID int64) []loot.DroppedItem
-}
-
-// CharacterReader is the minimal character-service surface combat needs: fetching
-// a combatant's level and stats by ID. Declared here (consumer-owned) so combat
-// depends on the behaviour it uses, not the full character.CharacterService.
-type CharacterReader interface {
-	GetByID(ctx context.Context, id int64) (*character.CharacterWithStats, error)
 }
 
 // SkillEffect is the server-authoritative effect of a skill. combat resolves a
@@ -86,20 +74,21 @@ type CombatService interface {
 }
 
 type combatService struct {
-	charService CharacterReader
-	statClient  statclient.Client
-	registry    *session.Registry
-	rewarder    KillRewarder
-	eventBus    bus.EventBus
-	hooks       *hooks.Hooks
-	skills      SkillResolver
+	creatures  creature.Resolver
+	statClient statclient.Client
+	registry   *session.Registry
+	rewarder   KillRewarder
+	eventBus   bus.EventBus
+	hooks      *hooks.Hooks
+	skills     SkillResolver
 }
 
-// NewCombatService builds the combat service. eventBus, hks and skills may be nil
-// (no events published / no hook filters applied / skill attacks rejected,
-// respectively).
+// NewCombatService builds the combat service. The creature resolver produces both
+// the attacker and the defender (character, mob, or pet). eventBus, hks and skills
+// may be nil (no events published / no hook filters applied / skill attacks
+// rejected, respectively).
 func NewCombatService(
-	charService CharacterReader,
+	creatures creature.Resolver,
 	statClient statclient.Client,
 	registry *session.Registry,
 	rewarder KillRewarder,
@@ -108,13 +97,13 @@ func NewCombatService(
 	skills SkillResolver,
 ) CombatService {
 	return &combatService{
-		charService: charService,
-		statClient:  statClient,
-		registry:    registry,
-		rewarder:    rewarder,
-		eventBus:    eventBus,
-		hooks:       hks,
-		skills:      skills,
+		creatures:  creatures,
+		statClient: statClient,
+		registry:   registry,
+		rewarder:   rewarder,
+		eventBus:   eventBus,
+		hooks:      hks,
+		skills:     skills,
 	}
 }
 
@@ -137,27 +126,14 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		return nil, err
 	}
 
-	// 1. Resolve attacker session or details
-	attackerSess, exists := s.registry.GetSession(req.AttackerID)
-	var attackerLevel int32
-	var attackerAtk, attackerDex, attackerCritRate, attackerCritDmg float64
-
-	if exists {
-		if attackerSess.IsDead {
-			return nil, ErrAttackerDead
-		}
-	}
-
-	attackerChar, err := s.charService.GetByID(ctx, req.AttackerID)
-	if err != nil {
+	// 1. Resolve the attacker (character/mob/pet) and its combat stats.
+	attacker, ok, err := s.creatures.Resolve(ctx, req.AttackerID)
+	if err != nil || !ok {
 		return nil, ErrAttackerNotFound
 	}
-	attackerLevel = attackerChar.Level
-	attackerAtk = attackerChar.Stats.DerivedStats["ATTACK"]
-	attackerDex = attackerChar.Stats.BaseStats["DEX"]
-	attackerCritRate = attackerChar.Stats.DerivedStats["CRIT_RATE"]
-	// default crit damage bonus is 0 for base
-	attackerCritDmg = 0.0
+	if sess, exists := s.registry.GetSession(req.AttackerID); exists && sess.IsDead {
+		return nil, ErrAttackerDead
+	}
 
 	// 1b. Resolve the skill server-side (a basic attack when no skill is named).
 	// The multiplier/flat/mana come from the server's skill pack, never the
@@ -171,7 +147,7 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		if !ok {
 			return nil, ErrUnknownSkill
 		}
-		if eff.ClassReq != "" && attackerChar.ClassName != eff.ClassReq {
+		if eff.ClassReq != "" && attacker.Class != eff.ClassReq {
 			return nil, ErrSkillClassMismatch
 		}
 		if eff.ManaCost > 0 && !s.registry.SpendMP(req.AttackerID, eff.ManaCost) {
@@ -181,72 +157,51 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		skillFlat = eff.FlatDamage
 	}
 
-	// 2. Resolve defender session and details
-	var defenderLevel int32
-	var defenderDef, defenderDex float64
+	// 2. Resolve the defender and its session state. A mob's session is created
+	// (and revived) on demand; a character must be in an active, living session.
+	defender, ok, err := s.creatures.Resolve(ctx, req.DefenderID)
+	if err != nil || !ok {
+		return nil, ErrDefenderNotFound
+	}
+
 	var defenderHP, defenderMaxHP float64
 	var defenderIsDead bool
-	var defenderIsMob bool
-	var defenderLootTable string
-
-	// If the defender is a defined mob (e.g. the training dummy 9999), use its
-	// data-driven stats; otherwise treat it as a PvP target (a real character).
-	if mob, ok := mobDefs.Mobs[strconv.FormatInt(req.DefenderID, 10)]; ok {
-		defenderIsMob = true
-		defenderLootTable = mob.LootTableID
-		defenderLevel = mob.Level
-		defenderDef = mob.Defense
-		defenderDex = mob.Dex
-		defenderMaxHP = mob.MaxHP
-
-		// Find or create the mob session in registry
-		mobSess, mobExists := s.registry.GetSession(req.DefenderID)
-		if !mobExists {
-			mobSess = s.registry.StartSession(req.DefenderID, mob.MaxHP, mob.MaxMP)
-		} else if mobSess.IsDead {
-			// Auto revive dummy for testing convenience (mutate through the
-			// registry so the change is applied under its lock, then re-read).
+	if defender.Kind == creature.KindMob {
+		sess, exists := s.registry.GetSession(req.DefenderID)
+		if !exists {
+			sess = s.registry.StartSession(req.DefenderID, defender.MaxHP, defender.MaxMP)
+		} else if sess.IsDead {
+			// Auto revive (testing convenience); mutate through the registry so
+			// the change is applied under its lock, then re-read.
 			s.registry.Revive(req.DefenderID)
-			mobSess, _ = s.registry.GetSession(req.DefenderID)
+			sess, _ = s.registry.GetSession(req.DefenderID)
 		}
-		defenderHP = mobSess.CurrentHP
-		defenderIsDead = mobSess.IsDead
+		defenderHP, defenderMaxHP, defenderIsDead = sess.CurrentHP, sess.MaxHP, sess.IsDead
 	} else {
-		// PvP Target
-		defSess, defExists := s.registry.GetSession(req.DefenderID)
-		if !defExists {
+		sess, exists := s.registry.GetSession(req.DefenderID)
+		if !exists {
 			return nil, ErrDefenderNotFound
 		}
-		if defSess.IsDead {
+		if sess.IsDead {
 			return nil, ErrDefenderDead
 		}
-
-		defenderChar, err := s.charService.GetByID(ctx, req.DefenderID)
-		if err != nil {
-			return nil, ErrDefenderNotFound
-		}
-		defenderLevel = defenderChar.Level
-		defenderDef = defenderChar.Stats.DerivedStats["DEFENSE"]
-		defenderDex = defenderChar.Stats.BaseStats["DEX"]
-		defenderHP = defSess.CurrentHP
-		defenderMaxHP = defSess.MaxHP
-		defenderIsDead = defSess.IsDead
+		defenderHP, defenderMaxHP, defenderIsDead = sess.CurrentHP, sess.MaxHP, sess.IsDead
 	}
 
 	// 3. Call Rust zzstat Core via embedded statclient
 	calcReq := statclient.CalculateDamageReq{
 		Attacker: statclient.CombatStats{
-			Level:           attackerLevel,
-			Attack:          attackerAtk,
+			Level:           attacker.Level,
+			Attack:          attacker.Attack,
 			Defense:         0,
-			Dex:             attackerDex,
-			CritRate:        attackerCritRate,
-			CritDamageBonus: attackerCritDmg,
+			Dex:             attacker.Dex,
+			CritRate:        attacker.CritRate,
+			CritDamageBonus: attacker.CritDmg,
 		},
 		Defender: statclient.CombatStats{
-			Level:   defenderLevel,
-			Defense: defenderDef,
-			Dex:     defenderDex,
+			Level:   defender.Level,
+			Defense: defender.Defense,
+			Dex:     defender.Dex,
 		},
 		SkillMultiplier: skillMult,
 		SkillFlatDamage: skillFlat,
@@ -257,7 +212,7 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		// Fallback physical formula if embedded client failed
 		res = statclient.DamageResult{
 			IsHit:  true,
-			Damage: int32(attackerAtk - defenderDef),
+			Damage: int32(attacker.Attack - defender.Defense),
 			IsCrit: false,
 		}
 		if res.Damage < 1 {
@@ -319,11 +274,11 @@ func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*
 		DefenderIsDead: defenderIsDead,
 	})
 	if killedNow {
-		if defenderIsMob {
+		if defender.Kind == creature.KindMob {
 			s.publish(ctx, MobKilled{
 				KillerID:    req.AttackerID,
 				VictimID:    req.DefenderID,
-				LootTableID: defenderLootTable,
+				LootTableID: defender.LootTableID,
 			})
 		} else {
 			s.publish(ctx, PlayerKilled{KillerID: req.AttackerID, VictimID: req.DefenderID})

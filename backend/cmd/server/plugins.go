@@ -756,8 +756,16 @@ func (combatPlugin) Init(ic plugin.InitContext) error {
 	skillService := skills.NewService()
 	ic.Mux().Handle("GET /api/v1/skills", auth.AuthMiddleware(ic.Config().JWTSecret)(skills.ListHandler(skillService)))
 
+	// Unified combatant resolution: mobs (content pack) then characters, so combat
+	// treats every fighter as a creature.
+	mobs := content.MustLoadMobs()
+	creatures := compositeCreatureResolver{
+		mobCreatureResolver{mobs},
+		charCreatureResolver{charService, mobs.PvP},
+	}
+
 	rewarder := killreward.New(charService, questService, lootService, invService, ic.Bus())
-	combatService := combat.NewCombatService(charService, stat.client, sessionReg, rewarder, ic.Bus(), ic.Hooks(), skillResolver{skillService})
+	combatService := combat.NewCombatService(creatures, stat.client, sessionReg, rewarder, ic.Bus(), ic.Hooks(), skillResolver{skillService})
 
 	router.Handle("COMBAT_ATTACK", func(client *socket.Client, msg socket.WSMessage) {
 		if client.CharacterID == 0 {

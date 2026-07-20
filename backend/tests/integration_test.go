@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"errors"
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
@@ -18,8 +19,12 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/store"
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
+	"strconv"
+
+	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
+	"github.com/singoesdeep/zzrpg/backend/internal/creature"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
@@ -103,7 +108,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	go hub.Run()
 
 	sessionReg := session.NewRegistry()
-	combatService := combat.NewCombatService(charService, statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil, nil, nil)
+	combatService := combat.NewCombatService(makeCreatures(charService), statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil, nil, nil)
 
 	// WebSocket handler routing callback
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
@@ -514,7 +519,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	go hub.Run()
 
 	sessionReg := session.NewRegistry()
-	combatService := combat.NewCombatService(charService, statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil, nil, nil)
+	combatService := combat.NewCombatService(makeCreatures(charService), statClient, sessionReg, killreward.New(charService, questService, lootService, invService, nil), nil, nil, nil)
 
 	wsMsgHandler := func(client *socket.Client, msg socket.WSMessage) {
 		switch msg.Type {
@@ -1008,4 +1013,36 @@ func TestRefreshTokenRotationPg(t *testing.T) {
 	if _, err := authService.Refresh(ctx, next.RefreshToken); err != auth.ErrInvalidRefreshToken {
 		t.Errorf("expected ErrInvalidRefreshToken after logout, got %v", err)
 	}
+}
+
+// makeCreatures builds a creature.Resolver mirroring the production composite
+// (mobs from the pack, then characters) for combat in integration tests.
+func makeCreatures(charSvc character.CharacterService) creature.Resolver {
+	mobs := content.MustLoadMobs()
+	return creature.ResolverFunc(func(ctx context.Context, id int64) (creature.Creature, bool, error) {
+		if def, ok := mobs.Mobs[strconv.FormatInt(id, 10)]; ok {
+			return creature.Creature{
+				ID: id, Kind: creature.KindMob, Level: def.Level, Defense: def.Defense,
+				Dex: def.Dex, MaxHP: def.MaxHP, MaxMP: def.MaxMP,
+				LootTableID: def.LootTableID, QuestTag: def.QuestTag,
+			}, true, nil
+		}
+		c, err := charSvc.GetByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, character.ErrCharacterNotFound) {
+				return creature.Creature{}, false, nil
+			}
+			return creature.Creature{}, false, err
+		}
+		return creature.Creature{
+			ID: id, Kind: creature.KindCharacter, Class: c.ClassName, Level: c.Level,
+			Attack:      c.Stats.DerivedStats["ATTACK"],
+			Defense:     c.Stats.DerivedStats["DEFENSE"],
+			Dex:         c.Stats.BaseStats["DEX"],
+			CritRate:    c.Stats.DerivedStats["CRIT_RATE"],
+			MaxHP:       c.Stats.DerivedStats["HP"],
+			MaxMP:       c.Stats.DerivedStats["MP"],
+			LootTableID: mobs.PvP.LootTableID, QuestTag: mobs.PvP.QuestTag,
+		}, true, nil
+	})
 }

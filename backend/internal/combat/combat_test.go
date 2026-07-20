@@ -9,6 +9,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
 	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
+	"github.com/singoesdeep/zzrpg/backend/internal/creature"
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
 	"github.com/singoesdeep/zzrpg/backend/internal/quests"
 	"github.com/singoesdeep/zzrpg/backend/internal/session"
@@ -56,6 +57,38 @@ func (m *mockStatClient) CalculateDamage(ctx context.Context, req statclient.Cal
 type mockSkills map[string]SkillEffect
 
 func (m mockSkills) Resolve(id string) (SkillEffect, bool) { e, ok := m[id]; return e, ok }
+
+// creatureResolverFunc adapts a func to creature.Resolver.
+type creatureResolverFunc func(context.Context, int64) (creature.Creature, bool, error)
+
+func (f creatureResolverFunc) Resolve(ctx context.Context, id int64) (creature.Creature, bool, error) {
+	return f(ctx, id)
+}
+
+// testResolver resolves 9999 to the training-dummy mob and char.ID to a creature
+// derived from char, mirroring the production resolvers for combat tests.
+func testResolver(char *character.CharacterWithStats) creature.Resolver {
+	return creatureResolverFunc(func(_ context.Context, id int64) (creature.Creature, bool, error) {
+		if id == 9999 {
+			return creature.Creature{
+				ID: 9999, Kind: creature.KindMob, Level: 10, Defense: 40, Dex: 10,
+				MaxHP: 1000, MaxMP: 100, LootTableID: "dummy_drops", QuestTag: "wolf",
+			}, true, nil
+		}
+		if char != nil && id == char.ID {
+			return creature.Creature{
+				ID: id, Kind: creature.KindCharacter, Class: char.ClassName, Level: char.Level,
+				Attack:   char.Stats.DerivedStats["ATTACK"],
+				Defense:  char.Stats.DerivedStats["DEFENSE"],
+				Dex:      char.Stats.BaseStats["DEX"],
+				CritRate: char.Stats.DerivedStats["CRIT_RATE"],
+				MaxHP:    char.Stats.DerivedStats["HP"],
+				MaxMP:    char.Stats.DerivedStats["MP"],
+			}, true, nil
+		}
+		return creature.Creature{}, false, nil
+	})
+}
 func (m *mockStatClient) Close() error {
 	return nil
 }
@@ -121,7 +154,7 @@ func TestCombatExecutionPvE(t *testing.T) {
 	questSvc := &mockQuestService{}
 
 	rewarder := killreward.New(charService, questSvc, nil, nil, nil)
-	service := NewCombatService(charService, statClient, registry, rewarder, nil, nil, nil)
+	service := NewCombatService(testResolver(charService.char), statClient, registry, rewarder, nil, nil, nil)
 
 	// 1. First Attack (Hit dummy)
 	req := AttackRequest{
@@ -197,7 +230,7 @@ func TestCombatEmitsDomainEvents(t *testing.T) {
 		mobKilled <- ev.(MobKilled)
 	})
 
-	service := NewCombatService(charService, statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil, nil)
+	service := NewCombatService(testResolver(charService.char), statClient, registry, killreward.New(charService, &mockQuestService{}, nil, nil, nil), eventBus, nil, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 2, DefenderID: 9999})
 	if err != nil {
@@ -255,7 +288,7 @@ func TestCombatDamageHookFilter(t *testing.T) {
 		return d
 	})
 
-	service := NewCombatService(charService, statClient, registry,
+	service := NewCombatService(testResolver(charService.char), statClient, registry,
 		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	res, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 3, DefenderID: 9999})
@@ -301,7 +334,7 @@ func TestCombatPreAttackVeto(t *testing.T) {
 		return nil
 	})
 
-	service := NewCombatService(charService, statClient, registry,
+	service := NewCombatService(testResolver(charService.char), statClient, registry,
 		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks, nil)
 
 	_, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 4, DefenderID: 9999})
@@ -326,7 +359,7 @@ func TestCombatSkillServerAuthoritative(t *testing.T) {
 	skillPack := mockSkills{
 		"fireball": {Multiplier: 2.0, FlatDamage: 20, ManaCost: 25, ClassReq: "MAGE"},
 	}
-	service := NewCombatService(mage, stat, registry,
+	service := NewCombatService(testResolver(mage.char), stat, registry,
 		killreward.New(mage, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
 
 	// Session has 50 MP.
@@ -359,7 +392,7 @@ func TestCombatSkillServerAuthoritative(t *testing.T) {
 		Character: character.Character{ID: 6, ClassName: "WARRIOR", Level: 10},
 		Stats:     character.CharacterStats{DerivedStats: map[string]float64{"ATTACK": 150}},
 	}}
-	wsvc := NewCombatService(warrior, stat, registry,
+	wsvc := NewCombatService(testResolver(warrior.char), stat, registry,
 		killreward.New(warrior, &mockQuestService{}, nil, nil, nil), nil, nil, skillPack)
 	_ = registry.StartSession(6, 100, 100)
 	defer registry.EndSession(6)
