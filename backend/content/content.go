@@ -3,16 +3,50 @@
 // of Go source is the first step of the data-driven engine: game designers tune
 // numbers in content/ rather than editing code, and there is a single source of
 // truth for each rule instead of duplicated literals.
+//
+// Overriding without recompiling: set ZZRPG_CONTENT_DIR to a directory and any
+// pack file present there (by its relative path, e.g. "mobs/mobs.json") is loaded
+// instead of the embedded default. Files absent from the directory fall back to
+// the embedded pack, so an operator or plugin can override just the files they
+// care about. The override directory is read at package init, so it applies even
+// to packs loaded into package-level vars at startup.
 package content
 
 import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 //go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json loot/tables.json
 var files embed.FS
+
+// overrideDir, when non-empty, is searched (by relative path) before the embedded
+// pack. Initialised from ZZRPG_CONTENT_DIR so it is set before other packages load
+// their content into package-level vars.
+var overrideDir = os.Getenv("ZZRPG_CONTENT_DIR")
+
+// SetOverrideDir sets the on-disk override directory (mainly for tests). Loaders
+// called after this see the new value.
+func SetOverrideDir(dir string) { overrideDir = dir }
+
+// readContent returns a pack file, preferring an override in overrideDir over the
+// embedded default. A file missing on disk falls back to embedded; any other disk
+// error (e.g. permissions) is surfaced.
+func readContent(name string) ([]byte, error) {
+	if overrideDir != "" {
+		b, err := os.ReadFile(filepath.Join(overrideDir, name))
+		if err == nil {
+			return b, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("read override %s: %w", name, err)
+		}
+	}
+	return files.ReadFile(name)
+}
 
 // StatTerm is one additive term of a derived stat. A term with an empty Source
 // is a flat constant of Factor; otherwise it scales the named base stat by
@@ -110,7 +144,7 @@ type LootTables map[string]LootTable
 
 // LoadDerivedStats reads the embedded derived-stat formula pack.
 func LoadDerivedStats() (*DerivedStats, error) {
-	raw, err := files.ReadFile("formulas/derived_stats.json")
+	raw, err := readContent("formulas/derived_stats.json")
 	if err != nil {
 		return nil, fmt.Errorf("read derived_stats.json: %w", err)
 	}
@@ -123,7 +157,7 @@ func LoadDerivedStats() (*DerivedStats, error) {
 
 // LoadClasses reads the embedded class-definition pack.
 func LoadClasses() (ClassDefs, error) {
-	raw, err := files.ReadFile("classes/classes.json")
+	raw, err := readContent("classes/classes.json")
 	if err != nil {
 		return nil, fmt.Errorf("read classes.json: %w", err)
 	}
@@ -138,7 +172,7 @@ func LoadClasses() (ClassDefs, error) {
 // zzstat's EvaluateCombatEx. Panics if the embedded file is missing (a
 // build-time programmer error).
 func CombatFormulaJSON() string {
-	raw, err := files.ReadFile("formulas/combat.json")
+	raw, err := readContent("formulas/combat.json")
 	if err != nil {
 		panic(fmt.Errorf("read combat.json: %w", err))
 	}
@@ -147,7 +181,7 @@ func CombatFormulaJSON() string {
 
 // LoadMobs reads the embedded mob-definition pack.
 func LoadMobs() (*Mobs, error) {
-	raw, err := files.ReadFile("mobs/mobs.json")
+	raw, err := readContent("mobs/mobs.json")
 	if err != nil {
 		return nil, fmt.Errorf("read mobs.json: %w", err)
 	}
@@ -160,7 +194,7 @@ func LoadMobs() (*Mobs, error) {
 
 // LoadLootTables reads the embedded fallback loot-table pack.
 func LoadLootTables() (LootTables, error) {
-	raw, err := files.ReadFile("loot/tables.json")
+	raw, err := readContent("loot/tables.json")
 	if err != nil {
 		return nil, fmt.Errorf("read tables.json: %w", err)
 	}
@@ -182,7 +216,7 @@ func MustLoadLootTables() LootTables {
 
 // LoadIdle reads the embedded offline/idle reward config pack.
 func LoadIdle() (*IdleConfig, error) {
-	raw, err := files.ReadFile("idle/offline.json")
+	raw, err := readContent("idle/offline.json")
 	if err != nil {
 		return nil, fmt.Errorf("read offline.json: %w", err)
 	}

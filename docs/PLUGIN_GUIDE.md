@@ -90,6 +90,11 @@ Tunable game data is embedded JSON in `backend/content/` (class stats, derived-
 stat coefficients, mob defs, the combat formula, idle economy, loot tables). Edit
 these to add classes/mobs/loot with no code.
 
+**Override without recompiling:** set `ZZRPG_CONTENT_DIR=/path/to/packs`. Any pack
+file present there (by its relative path, e.g. `mobs/mobs.json`) is loaded instead
+of the embedded default; files you don't provide fall back to the embedded pack.
+So an operator or plugin can ship just the packs it changes.
+
 ---
 
 ## 3. Extension-point catalog

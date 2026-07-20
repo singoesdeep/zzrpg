@@ -1,6 +1,10 @@
 package content
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // TestDerivedStatsMatchLegacyCoefficients pins the content values to the
 // coefficients that were previously hardcoded in statclient (primary+secondary)
@@ -155,5 +159,39 @@ func TestClassesMatchLegacyStats(t *testing.T) {
 				t.Errorf("%s.%s: got %v, want %v", name, stat, classes[name][stat], val)
 			}
 		}
+	}
+}
+
+// TestContentOverride proves ZZRPG_CONTENT_DIR overrides embedded packs per file:
+// a mobs.json placed on disk is used, while an unoverridden pack (classes) still
+// falls back to the embedded default.
+func TestContentOverride(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "mobs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	custom := `{"mobs":{"9999":{"level":50,"defense":1,"dex":1,"max_hp":1,"max_mp":1,"loot_table_id":"x","quest_tag":"y"}},"pvp":{"loot_table_id":"p","quest_tag":"q"}}`
+	if err := os.WriteFile(filepath.Join(dir, "mobs", "mobs.json"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	SetOverrideDir(dir)
+	defer SetOverrideDir("")
+
+	mobs, err := LoadMobs()
+	if err != nil {
+		t.Fatalf("LoadMobs: %v", err)
+	}
+	if mobs.Mobs["9999"].Level != 50 {
+		t.Errorf("expected the overridden mob (level 50), got %+v", mobs.Mobs["9999"])
+	}
+
+	// classes.json is not present on disk -> embedded fallback (WARRIOR STR = 15).
+	classes, err := LoadClasses()
+	if err != nil {
+		t.Fatalf("LoadClasses: %v", err)
+	}
+	if classes["WARRIOR"]["STR"] != 15 {
+		t.Errorf("non-overridden pack should fall back to embedded, got %v", classes["WARRIOR"])
 	}
 }

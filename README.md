@@ -147,6 +147,7 @@ Server → client: `SELECT_CHARACTER_ACK`, `OFFLINE_GAINS`, `AWAY_EVENTS`,
 | `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` | `20` / `40` | per-IP HTTP rate limit (`0` disables) |
 | `MAX_BODY_BYTES` | `1048576` | max request body |
 | `OUTBOX_RETENTION` | `24h` | how long dispatched outbox rows are kept |
+| `ZZRPG_CONTENT_DIR` | (embedded) | directory whose JSON packs override the embedded defaults (per file) |
 
 ---
 
