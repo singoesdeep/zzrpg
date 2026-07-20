@@ -1,0 +1,16 @@
+# Build artifacts and local-only files that must not enter the image.
+*.so
+libzzstat_ffi.so
+/out
+/bin
+*.test
+*.log
+.env
+.env.*
+# VCS / editor noise
+.git
+.gitignore
+.idea
+.vscode
+# Docs and tests are not needed to build the server binary.
+**/*_test.go

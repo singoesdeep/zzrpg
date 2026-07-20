@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The zzstat commit whose FFI library / Go bindings the backend depends on.
+# Keep in sync with github.com/singoesdeep/zzstat/bindings/go in backend/go.mod
+# and ARG ZZSTAT_REF in backend/Dockerfile.
+env:
+  ZZSTAT_REF: a9e1e78827b584c174de28348985998fec1cfa55
+
+jobs:
+  test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout zzrpg
+        uses: actions/checkout@v4
+
+      - name: Checkout zzstat (FFI source)
+        uses: actions/checkout@v4
+        with:
+          repository: singoesdeep/zzstat
+          ref: ${{ env.ZZSTAT_REF }}
+          path: zzstat
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build zzstat FFI shared library
+        working-directory: zzstat
+        run: cargo build --release -p zzstat-ffi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: go build
+        working-directory: backend
+        run: go build ./...
+
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: gofmt check
+        working-directory: backend
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go test (race)
+        working-directory: backend
+        env:
+          ZZSTAT_LIB_PATH: ${{ github.workspace }}/zzstat/target/release/libzzstat_ffi.so
+        run: go test -race ./...
+
+  docker:
+    name: docker image build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: false
+          build-args: |
+            ZZSTAT_REF=${{ env.ZZSTAT_REF }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
