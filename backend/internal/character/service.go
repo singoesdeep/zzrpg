@@ -6,6 +6,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 )
 
@@ -27,16 +28,18 @@ type characterService struct {
 	statClient    statclient.Client
 	equipProvider EquipmentProvider
 	eventBus      bus.EventBus
+	hooks         *hooks.Hooks
 }
 
-// NewCharacterService builds the character service. eventBus may be nil, in which
-// case no domain events are published (the service is otherwise unchanged).
-func NewCharacterService(repo CharacterRepository, statClient statclient.Client, equipProvider EquipmentProvider, eventBus bus.EventBus) CharacterService {
+// NewCharacterService builds the character service. eventBus and hks may be nil
+// (no domain events published / no reward filters applied, respectively).
+func NewCharacterService(repo CharacterRepository, statClient statclient.Client, equipProvider EquipmentProvider, eventBus bus.EventBus, hks *hooks.Hooks) CharacterService {
 	return &characterService{
 		repo:          repo,
 		statClient:    statClient,
 		equipProvider: equipProvider,
 		eventBus:      eventBus,
+		hooks:         hks,
 	}
 }
 
@@ -144,6 +147,12 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 }
 
 func (s *characterService) AddRewards(ctx context.Context, charID int64, gold int64, exp int64) (bool, int32, error) {
+	// Let plugins adjust the reward before it is applied and recorded (XP/gold
+	// boosts, rested bonuses, event multipliers). The outbox RewardsGranted event
+	// is written by the repo with these filtered amounts, so it stays consistent.
+	r := hooks.ApplyFilters(s.hooks, ctx, HookRewards, RewardsFilter{CharacterID: charID, Gold: gold, Exp: exp})
+	gold, exp = r.Gold, r.Exp
+
 	leveledUp, newLevel, err := s.repo.AddRewards(ctx, charID, gold, exp)
 	if err != nil {
 		return false, 0, err

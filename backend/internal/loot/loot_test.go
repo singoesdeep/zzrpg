@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"testing"
+
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 )
 
 type mockLootRepository struct {
@@ -128,5 +130,30 @@ func TestLootRollingIsDeterministicWithSeed(t *testing.T) {
 	}
 	if !varied {
 		t.Fatalf("sequence did not vary, RNG not exercised: %v", a)
+	}
+}
+
+// TestLootRollHookFilter proves a plugin filter can adjust rolled drops: a
+// HookRoll filter appends a bonus item and it appears in the result.
+func TestLootRollHookFilter(t *testing.T) {
+	hks := hooks.New(nil)
+	hooks.AddFilter(hks, HookRoll, 10, func(_ context.Context, r LootRoll) LootRoll {
+		r.Items = append(r.Items, DroppedItem{ItemDefinitionID: "event_token", Quantity: 1})
+		return r
+	})
+	service := NewLootService(newMockLootRepository(), WithSeed(1), WithHooks(hks))
+
+	drops, err := service.RollLoot(context.Background(), "dummy_drops")
+	if err != nil {
+		t.Fatalf("roll: %v", err)
+	}
+	var found bool
+	for _, d := range drops {
+		if d.ItemDefinitionID == "event_token" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected the hook-added bonus drop, got %+v", drops)
 	}
 }

@@ -428,7 +428,7 @@ func (p *characterPlugin) Init(ic plugin.InitContext) error {
 
 	p.eventBus = ic.Bus()
 	charRepo := character.NewCharacterRepository(db.Store)
-	p.charService = character.NewCharacterService(charRepo, stat.client, nil, ic.Bus())
+	p.charService = character.NewCharacterService(charRepo, stat.client, nil, ic.Bus(), ic.Hooks())
 	if err := registry.Provide(reg, "character", p.charService); err != nil {
 		return err
 	}
@@ -668,7 +668,7 @@ func (lootPlugin) Init(ic plugin.InitContext) error {
 	// in a read-through cache.
 	var lootRepo loot.LootRepository = loot.NewLootRepository(db.Store)
 	lootRepo = loot.NewCachedRepository(lootRepo, appCache, 10*time.Minute)
-	lootService := loot.NewLootService(lootRepo)
+	lootService := loot.NewLootService(lootRepo, loot.WithHooks(ic.Hooks()))
 	if err := registry.Provide(reg, "loot", lootService); err != nil {
 		return err
 	}

@@ -3,6 +3,8 @@ package character
 import (
 	"context"
 	"testing"
+
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 )
 
 type mockCharacterRepository struct {
@@ -103,7 +105,7 @@ func (m *mockCharacterRepository) AddRewards(ctx context.Context, charID int64, 
 
 func TestCreateCharacter(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo, nil, nil, nil)
+	service := NewCharacterService(repo, nil, nil, nil, nil)
 
 	// 1. Success case: Warrior
 	char, err := service.Create(context.Background(), 100, "WarriorGod", "WARRIOR")
@@ -152,7 +154,7 @@ func TestCreateCharacter(t *testing.T) {
 
 func TestCharacterLimit(t *testing.T) {
 	repo := newMockCharacterRepository()
-	service := NewCharacterService(repo, nil, nil, nil)
+	service := NewCharacterService(repo, nil, nil, nil, nil)
 
 	// Create 4 characters successfully
 	for i := 1; i <= 4; i++ {
@@ -174,3 +176,33 @@ func TestCharacterLimit(t *testing.T) {
 // outbox inside repo.AddRewards (see engine/outbox tests for the dispatch path
 // and the live-Postgres integration test for the end-to-end atomic guarantee),
 // so there is no direct-publish unit test for them here.
+
+// TestRewardsHookFilter proves a plugin filter can adjust rewards before they are
+// applied: a HookRewards filter that doubles gold means the repo receives the
+// doubled amount.
+func TestRewardsHookFilter(t *testing.T) {
+	repo := newMockCharacterRepository()
+	hks := hooks.New(nil)
+	hooks.AddFilter(hks, HookRewards, 10, func(_ context.Context, r RewardsFilter) RewardsFilter {
+		r.Gold *= 2 // a "double gold weekend" plugin
+		return r
+	})
+	service := NewCharacterService(repo, nil, nil, nil, hks)
+
+	char, err := service.Create(context.Background(), 1, "RewardHero", "WARRIOR")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, _, err := service.AddRewards(context.Background(), char.ID, 100, 50); err != nil {
+		t.Fatalf("add rewards: %v", err)
+	}
+
+	// The mock repo accumulated the filtered gold (100*2) and unfiltered exp.
+	got := repo.characters[char.ID]
+	if got.Character.Gold != 200 {
+		t.Errorf("expected doubled gold 200 to reach the repo, got %d", got.Character.Gold)
+	}
+	if got.Character.Experience != 50 {
+		t.Errorf("expected exp 50 unchanged, got %d", got.Character.Experience)
+	}
+}

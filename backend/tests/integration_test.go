@@ -82,7 +82,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	statClient := &mockStatClient{}
 
 	charRepo := character.NewCharacterRepository(db.Store)
-	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil, nil)
 
 	itemRepo := items.NewItemRepository(db.Store)
 	itemService := items.NewItemService(itemRepo)
@@ -350,7 +350,7 @@ func TestDoubleSessionOverride(t *testing.T) {
 
 	statClient := &mockStatClient{}
 	charRepo := character.NewCharacterRepository(db.Store)
-	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
@@ -498,7 +498,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 
 	statClient := &mockStatClient{}
 	charRepo := character.NewCharacterRepository(db.Store)
-	charService := character.NewCharacterService(charRepo, statClient, nil, nil)
+	charService := character.NewCharacterService(charRepo, statClient, nil, nil, nil)
 
 	invRepo := inventory.NewInventoryRepository(db.Store)
 	invService := inventory.NewInventoryService(invRepo, charService, bus.NewInProc(nil))
@@ -767,7 +767,7 @@ func TestOutboxDispatchesRewardEvents(t *testing.T) {
 	}
 
 	charRepo := character.NewCharacterRepository(st)
-	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil)
+	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil, nil)
 	charName := fmt.Sprintf("Ob%d", time.Now().UnixNano()%100000000000)
 	char, err := charService.Create(ctx, user.ID, charName, "WARRIOR")
 	if err != nil {
@@ -854,7 +854,7 @@ func TestEventLogReplay(t *testing.T) {
 		t.Fatalf("register: %v", err)
 	}
 	charRepo := character.NewCharacterRepository(st)
-	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil)
+	charService := character.NewCharacterService(charRepo, &mockStatClient{}, nil, nil, nil)
 	charName := fmt.Sprintf("El%d", time.Now().UnixNano()%100000000000)
 	char, err := charService.Create(ctx, user.ID, charName, "WARRIOR")
 	if err != nil {

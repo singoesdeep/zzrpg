@@ -103,6 +103,16 @@ func (s *combatService) publish(ctx context.Context, ev bus.Event) {
 }
 
 func (s *combatService) ExecuteAttack(ctx context.Context, req AttackRequest) (*AttackResult, error) {
+	// 0. Let plugins veto the attack before anything happens (peaceful zones,
+	// stuns, disarms). A returned error aborts the attack.
+	if err := hooks.DoAction(s.hooks, ctx, HookPreAttack, PreAttack{
+		AttackerID: req.AttackerID,
+		DefenderID: req.DefenderID,
+		SkillID:    req.SkillID,
+	}); err != nil {
+		return nil, err
+	}
+
 	// 1. Resolve attacker session or details
 	attackerSess, exists := s.registry.GetSession(req.AttackerID)
 	var attackerLevel int32

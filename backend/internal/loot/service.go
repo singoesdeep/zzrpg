@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 )
 
 // fallbackTables is the embedded loot pack used when the DB has no row for a
@@ -26,6 +27,7 @@ type lootService struct {
 	// access is serialized by randMu.
 	randMu sync.Mutex
 	rand   *rand.Rand
+	hooks  *hooks.Hooks
 }
 
 // Option configures a lootService at construction.
@@ -42,6 +44,11 @@ func WithSeed(seed int64) Option {
 // service's mutex, so the supplied *rand.Rand need not be concurrency-safe.
 func WithRand(r *rand.Rand) Option {
 	return func(s *lootService) { s.rand = r }
+}
+
+// WithHooks enables the loot.roll filter so plugins can adjust rolled drops.
+func WithHooks(h *hooks.Hooks) Option {
+	return func(s *lootService) { s.hooks = h }
 }
 
 // NewLootService builds a loot service. By default the RNG is seeded from the
@@ -66,32 +73,44 @@ func (s *lootService) ListLootTables(ctx context.Context, limit, offset int) ([]
 }
 
 func (s *lootService) RollLoot(ctx context.Context, tableID string) ([]DroppedItem, error) {
-	lt, err := s.repo.GetLootTable(ctx, tableID)
+	entries, err := s.entriesFor(ctx, tableID)
 	if err != nil {
-		// Fall back to an embedded content table if one is defined for this ID
-		// (e.g. the training dummy's drops when the DB has no row yet); other
-		// missing tables still surface the repo error.
-		ct, ok := fallbackTables[tableID]
-		if !ok {
-			return nil, err
-		}
-		var drops []DroppedItem
-		for _, e := range ct.Entries {
-			if d, ok := s.rollEntry(e.ItemDefinitionID, e.Rate, e.MinQuantity, e.MaxQuantity); ok {
-				drops = append(drops, d)
-			}
-		}
-		return drops, nil
+		return nil, err
 	}
 
 	var drops []DroppedItem
-	for _, e := range lt.Entries {
+	for _, e := range entries {
 		if d, ok := s.rollEntry(e.ItemDefinitionID, e.Rate, e.MinQuantity, e.MaxQuantity); ok {
 			drops = append(drops, d)
 		}
 	}
 
-	return drops, nil
+	// Let plugins adjust the rolled drops (bonus drops, luck multipliers,
+	// event-only items, ...) before they are returned.
+	return hooks.ApplyFilters(s.hooks, ctx, HookRoll, LootRoll{TableID: tableID, Items: drops}).Items, nil
+}
+
+// entriesFor returns the drop rules for a table: the DB table if present,
+// otherwise an embedded fallback table if one is defined for the ID.
+func (s *lootService) entriesFor(ctx context.Context, tableID string) ([]LootEntry, error) {
+	lt, err := s.repo.GetLootTable(ctx, tableID)
+	if err == nil {
+		return lt.Entries, nil
+	}
+	ct, ok := fallbackTables[tableID]
+	if !ok {
+		return nil, err
+	}
+	entries := make([]LootEntry, len(ct.Entries))
+	for i, e := range ct.Entries {
+		entries[i] = LootEntry{
+			ItemDefinitionID: e.ItemDefinitionID,
+			Rate:             e.Rate,
+			MinQuantity:      e.MinQuantity,
+			MaxQuantity:      e.MaxQuantity,
+		}
+	}
+	return entries, nil
 }
 
 // rollEntry decides one drop rule: it drops with probability rate/10000, in a

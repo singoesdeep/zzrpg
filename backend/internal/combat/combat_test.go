@@ -2,6 +2,7 @@ package combat
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -269,4 +270,35 @@ func TestCombatDamageHookFilter(t *testing.T) {
 
 	registry.EndSession(3)
 	registry.EndSession(9999)
+}
+
+// TestCombatPreAttackVeto proves an action hook can cancel an attack: a
+// HookPreAttack action that returns an error aborts ExecuteAttack with that error.
+func TestCombatPreAttackVeto(t *testing.T) {
+	registry := session.NewRegistry()
+	_ = registry.StartSession(4, 100.0, 50.0)
+	defer registry.EndSession(4)
+	defer registry.EndSession(9999)
+
+	charService := &mockCharService{char: &character.CharacterWithStats{
+		Character: character.Character{ID: 4, ClassName: "WARRIOR", Level: 10},
+		Stats:     character.CharacterStats{DerivedStats: map[string]float64{"ATTACK": 150}},
+	}}
+	statClient := &mockStatClient{damageRes: statclient.DamageResult{IsHit: true, Damage: 100}}
+
+	hks := hooks.New(nil)
+	hooks.AddAction(hks, HookPreAttack, 10, func(_ context.Context, pa PreAttack) error {
+		if pa.DefenderID == 9999 {
+			return errors.New("peaceful zone: attacks disabled")
+		}
+		return nil
+	})
+
+	service := NewCombatService(charService, statClient, registry,
+		killreward.New(charService, &mockQuestService{}, nil, nil, nil), nil, hks)
+
+	_, err := service.ExecuteAttack(context.Background(), AttackRequest{AttackerID: 4, DefenderID: 9999})
+	if err == nil || err.Error() != "peaceful zone: attacks disabled" {
+		t.Errorf("expected the attack to be vetoed by the hook, got err=%v", err)
+	}
 }
