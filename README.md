@@ -174,6 +174,7 @@ cd backend && go test -race ./...
 
 | Doc | Topic |
 |---|---|
+| [`docs/PLUGIN_GUIDE.md`](docs/PLUGIN_GUIDE.md) | **Writing plugins** — extension points, hooks, events, example |
 | [`docs/ENGINE_TRANSFORMATION_PLAN.md`](docs/ENGINE_TRANSFORMATION_PLAN.md) | Full engine architecture & roadmap |
 | [`docs/ARCHITECTURE_EN.md`](docs/ARCHITECTURE_EN.md) / [`_TR`](docs/ARCHITECTURE_TR.md) | System architecture |
 | [`docs/DATABASE_DESIGN_EN.md`](docs/DATABASE_DESIGN_EN.md) / [`API_DESIGN_EN.md`](docs/API_DESIGN_EN.md) | Schema & API |

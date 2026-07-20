@@ -17,6 +17,12 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/pkg/config"
 )
 
+// APIVersion is the version of the plugin extension contract (the Plugin
+// interface, InitContext, the event bus, and the hook system). It follows
+// semver: a minor bump adds extension points; a major bump is a breaking change
+// to the surface plugins depend on. Plugin authors can pin against it.
+const APIVersion = "0.1.0"
+
 // Plugin is the unit of composition the kernel loads. Implementations are
 // registered with Kernel.Register and run in dependency order.
 type Plugin interface {
