@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json idle/stages.json idle/lifeskills.json idle/generators.json loot/tables.json skills/skills.json
+//go:embed formulas/derived_stats.json formulas/combat.json classes/classes.json mobs/mobs.json idle/offline.json idle/stages.json idle/lifeskills.json idle/generators.json idle/lifeskill_curve.json loot/tables.json skills/skills.json
 var files embed.FS
 
 // overrideDir, when non-empty, is searched (by relative path) before the embedded
@@ -427,6 +427,35 @@ func MustLoadGenerators() *GeneratorPack {
 		panic(err)
 	}
 	return p
+}
+
+// LifeskillCurve parameterises the xp-per-level curve for lifeskills:
+// xp to advance from level N is Base * N^Exp.
+type LifeskillCurve struct {
+	Base float64 `json:"base"`
+	Exp  float64 `json:"exp"`
+}
+
+// LoadLifeskillCurve reads the embedded lifeskill leveling curve.
+func LoadLifeskillCurve() (LifeskillCurve, error) {
+	raw, err := readContent("idle/lifeskill_curve.json")
+	if err != nil {
+		return LifeskillCurve{}, fmt.Errorf("read lifeskill_curve.json: %w", err)
+	}
+	var c LifeskillCurve
+	if err := json.Unmarshal(raw, &c); err != nil {
+		return LifeskillCurve{}, fmt.Errorf("parse lifeskill_curve.json: %w", err)
+	}
+	return c, nil
+}
+
+// MustLoadLifeskillCurve is LoadLifeskillCurve but panics on error.
+func MustLoadLifeskillCurve() LifeskillCurve {
+	c, err := LoadLifeskillCurve()
+	if err != nil {
+		panic(err)
+	}
+	return c
 }
 
 // MustLoadMobs is LoadMobs but panics on error.
