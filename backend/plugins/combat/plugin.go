@@ -1,7 +1,6 @@
 package combat
 
 import (
-	"context"
 	"encoding/json"
 
 	"github.com/singoesdeep/zzrpg/backend/content"
@@ -94,7 +93,7 @@ func (Plugin) Init(ic plugin.InitContext) error {
 		}
 		payload.AttackerID = client.CharacterID
 
-		res, err := combatService.ExecuteAttack(context.Background(), payload)
+		res, err := combatService.ExecuteAttack(client.Context(), payload)
 		if err != nil {
 			errAck, _ := json.Marshal(map[string]interface{}{
 				"type": "COMBAT_ERROR",

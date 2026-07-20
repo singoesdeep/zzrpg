@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"time"
@@ -34,6 +35,23 @@ type Client struct {
 	UserID      int64
 	Username    string
 	CharacterID int64
+
+	// ctx is scoped to the connection's lifetime: derived from the server's
+	// base context and cancelled when the read loop exits (disconnect). cancel
+	// releases it.
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
+// Context returns the connection-scoped context. Message handlers should pass
+// it into downstream calls so work is cancelled when the client disconnects or
+// the server shuts down. It never returns nil (falls back to context.Background
+// for clients constructed without one, e.g. in tests).
+func (c *Client) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
 }
 
 type WSMessage struct {
@@ -51,6 +69,9 @@ type SelectCharPayload struct {
 
 func (c *Client) ReadPump(messageHandler func(*Client, WSMessage), disconnectHandler func(*Client)) {
 	defer func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
 		if disconnectHandler != nil {
 			disconnectHandler(c)
 		}

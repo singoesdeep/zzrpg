@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
@@ -51,7 +52,7 @@ func TestWebSocketHubAndClient(t *testing.T) {
 	}
 
 	// 2. Start HTTP Test Server
-	server := httptest.NewServer(ServeWS(hub, jwtSecret, msgHandler, nil))
+	server := httptest.NewServer(ServeWS(context.Background(), hub, jwtSecret, msgHandler, nil))
 	defer server.Close()
 
 	// 3. Generate Valid JWT Token for singo

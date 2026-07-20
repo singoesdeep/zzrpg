@@ -159,7 +159,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	}
 
 	p.registerHTTPEndpoints(mux, reg, log)
-	p.registerWebSocket(mux, reg, cfg.JWTSecret)
+	p.registerWebSocket(ctx, mux, reg, cfg.JWTSecret)
 
 	return nil
 }
@@ -309,7 +309,7 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 	})
 }
 
-func (p *Plugin) registerWebSocket(mux plugin.Router, reg *registry.Registry, jwtSecret string) {
+func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, jwtSecret string) {
 	p.router.Handle("CHAT", func(client *socket.Client, msg socket.WSMessage) {
 		var payload socket.ChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -327,13 +327,17 @@ func (p *Plugin) registerWebSocket(mux plugin.Router, reg *registry.Registry, jw
 
 	disconnect := func(client *socket.Client) {
 		if client.CharacterID > 0 {
+			// The connection is gone, so use a fresh bounded context rather than
+			// the (now-cancelled) connection context for this cleanup write.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			if cs, err := registry.Resolve[character.CharacterService](reg, "character"); err == nil {
-				_ = cs.UpdateLastActive(context.Background(), client.CharacterID)
+				_ = cs.UpdateLastActive(cleanupCtx, client.CharacterID)
 			}
 			p.sessionReg.EndSession(client.CharacterID)
 		}
 	}
-	mux.HandleFunc("/ws", socket.ServeWS(p.hub, jwtSecret, p.router.Dispatch, disconnect))
+	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, jwtSecret, p.router.Dispatch, disconnect))
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {

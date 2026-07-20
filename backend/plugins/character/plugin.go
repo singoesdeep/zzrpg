@@ -110,19 +110,19 @@ func (p *Plugin) handleSelectCharacter(client *socket.Client, msg socket.WSMessa
 	}
 	p.hub.AssociateCharacter(client, payload.CharacterID)
 
-	char, err := p.charService.GetByID(context.Background(), payload.CharacterID)
+	char, err := p.charService.GetByID(client.Context(), payload.CharacterID)
 	if err == nil {
 		p.sessionReg.StartSession(payload.CharacterID, char.Stats.DerivedStats["HP"], char.Stats.DerivedStats["MP"])
 
 		if p.eventBus != nil {
-			_ = p.eventBus.Publish(context.Background(), character.CharacterLoggedIn{
+			_ = p.eventBus.Publish(client.Context(), character.CharacterLoggedIn{
 				CharacterID:  payload.CharacterID,
 				LastActiveAt: char.LastActiveAt,
 			})
 		}
 
 		if p.decoders != nil {
-			recorded, rerr := eventlog.Replay(context.Background(), p.store, p.decoders,
+			recorded, rerr := eventlog.Replay(client.Context(), p.store, p.decoders,
 				eventlog.CharacterStream(payload.CharacterID), char.LastActiveAt)
 			if rerr == nil && len(recorded) > 0 {
 				events := make([]map[string]interface{}, 0, len(recorded))
@@ -141,7 +141,7 @@ func (p *Plugin) handleSelectCharacter(client *socket.Client, msg socket.WSMessa
 			}
 		}
 
-		_ = p.charService.UpdateLastActive(context.Background(), payload.CharacterID)
+		_ = p.charService.UpdateLastActive(client.Context(), payload.CharacterID)
 	}
 
 	ack, _ := json.Marshal(map[string]interface{}{

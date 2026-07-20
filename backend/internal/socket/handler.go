@@ -1,6 +1,7 @@
 package socket
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -8,7 +9,10 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/auth"
 )
 
-func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
+// ServeWS returns the /ws HTTP handler. baseCtx is the parent for every
+// connection's context (typically the server's run context) so in-flight
+// message handling is cancelled on server shutdown as well as on disconnect.
+func ServeWS(baseCtx context.Context, hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), disconnectHandler func(*Client)) http.HandlerFunc {
 	// Configure upgrader to allow all origins in development
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
@@ -39,12 +43,15 @@ func ServeWS(hub *Hub, jwtSecret string, msgHandler func(*Client, WSMessage), di
 			return
 		}
 
+		connCtx, cancel := context.WithCancel(baseCtx)
 		client := &Client{
 			Hub:      hub,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),
 			UserID:   claims.UserID,
 			Username: claims.Username,
+			ctx:      connCtx,
+			cancel:   cancel,
 		}
 
 		client.Hub.Register <- client
