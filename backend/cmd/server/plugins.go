@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"os"
 	"time"
@@ -25,6 +24,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/combat"
 	"github.com/singoesdeep/zzrpg/backend/internal/database"
+	"github.com/singoesdeep/zzrpg/backend/internal/idle"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 	"github.com/singoesdeep/zzrpg/backend/internal/items"
 	"github.com/singoesdeep/zzrpg/backend/internal/killreward"
@@ -36,9 +36,6 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/internal/statclient"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 )
-
-// idleConfig is the offline/idle reward pack, loaded once from embedded content.
-var idleConfig = content.MustLoadIdle()
 
 // readyStr renders a dependency's reachability for the readiness payload.
 func readyStr(ok bool) string {
@@ -423,6 +420,7 @@ type characterPlugin struct {
 	hub         *socket.Hub
 	lootService loot.LootService
 	invService  inventory.InventoryService
+	idle        *idle.Service
 	eventBus    bus.EventBus
 	sessionReg  *session.Registry
 	store       store.Store
@@ -494,6 +492,7 @@ func (p *characterPlugin) Start(rc plugin.RunContext) error {
 	reg := rc.Registry()
 	p.lootService = registry.MustResolve[loot.LootService](reg, "loot")
 	p.invService = registry.MustResolve[inventory.InventoryService](reg, "inventory")
+	p.idle = idle.NewService(p.charService, p.lootService, p.invService)
 	return nil
 }
 
@@ -521,78 +520,32 @@ func (p *characterPlugin) handleSelectCharacter(client *socket.Client, msg socke
 			})
 		}
 
-		// Calculate Offline Gains (tuning in content/idle/offline.json).
-		elapsedSeconds := time.Now().Sub(char.LastActiveAt).Seconds()
-		if elapsedSeconds >= idleConfig.MinSeconds {
-			// Cap elapsed time (default 24 hours).
-			if elapsedSeconds > idleConfig.CapSeconds {
-				elapsedSeconds = idleConfig.CapSeconds
-			}
+		// Grant offline gains (idle progression is a domain service). The handler
+		// only turns the result into transport (a WS packet + a domain event).
+		if grant, granted, gerr := p.idle.GrantOffline(context.Background(), payload.CharacterID, char.Stats.BaseStats, char.LastActiveAt); gerr == nil && granted {
+			gainsSummary, _ := json.Marshal(map[string]interface{}{
+				"type": "OFFLINE_GAINS",
+				"payload": map[string]interface{}{
+					"elapsed_seconds": grant.ElapsedSeconds,
+					"gained_gold":     grant.Gold,
+					"gained_exp":      grant.Exp,
+					"leveled_up":      grant.LeveledUp,
+					"new_level":       grant.NewLevel,
+					"loot":            grant.Loot,
+				},
+			})
+			client.Send <- gainsSummary
 
-			// Calculate rates based on stats.
-			gainedGold := int64((elapsedSeconds / 60.0) * idleConfig.GoldPerMin.PerMinute(char.Stats.BaseStats))
-			gainedExp := int64((elapsedSeconds / 60.0) * idleConfig.ExpPerMin.PerMinute(char.Stats.BaseStats))
-
-			// Roll loot drops (one roll per elapsed minute, capped).
-			var offlineLoot []loot.DroppedItem
-			rollCount := int(elapsedSeconds / 60.0)
-			if rollCount > 0 {
-				if rollCount > idleConfig.MaxRolls {
-					rollCount = idleConfig.MaxRolls
-				}
-				rSource := rand.New(rand.NewSource(time.Now().UnixNano()))
-				for i := 0; i < rollCount; i++ {
-					if rSource.Float64() < idleConfig.RollChance {
-						drops, err := p.lootService.RollLoot(context.Background(), idleConfig.LootTableID)
-						if err == nil {
-							for _, drop := range drops {
-								if drop.ItemDefinitionID == "gold" {
-									gainedGold += int64(drop.Quantity)
-								} else {
-									offlineLoot = append(offlineLoot, drop)
-									// Add to inventory.
-									invItem := &inventory.InventoryItem{
-										CharacterID:      int32(payload.CharacterID),
-										ItemDefinitionID: drop.ItemDefinitionID,
-										Quantity:         drop.Quantity,
-										Durability:       100,
-									}
-									_ = p.invService.AddItem(context.Background(), invItem)
-								}
-							}
-						}
-					}
-				}
-			}
-
-			// Add offline rewards to db.
-			leveledUp, newLevel, err := p.charService.AddRewards(context.Background(), payload.CharacterID, gainedGold, gainedExp)
-			if err == nil {
-				// Send OFFLINE_GAINS packet.
-				gainsSummary, _ := json.Marshal(map[string]interface{}{
-					"type": "OFFLINE_GAINS",
-					"payload": map[string]interface{}{
-						"elapsed_seconds": elapsedSeconds,
-						"gained_gold":     gainedGold,
-						"gained_exp":      gainedExp,
-						"leveled_up":      leveledUp,
-						"new_level":       newLevel,
-						"loot":            offlineLoot,
-					},
+			if p.eventBus != nil {
+				_ = p.eventBus.Publish(context.Background(), character.OfflineGainsGranted{
+					CharacterID:    payload.CharacterID,
+					ElapsedSeconds: grant.ElapsedSeconds,
+					Gold:           grant.Gold,
+					Exp:            grant.Exp,
+					LeveledUp:      grant.LeveledUp,
+					NewLevel:       grant.NewLevel,
+					Loot:           grant.Loot,
 				})
-				client.Send <- gainsSummary
-
-				if p.eventBus != nil {
-					_ = p.eventBus.Publish(context.Background(), character.OfflineGainsGranted{
-						CharacterID:    payload.CharacterID,
-						ElapsedSeconds: elapsedSeconds,
-						Gold:           gainedGold,
-						Exp:            gainedExp,
-						LeveledUp:      leveledUp,
-						NewLevel:       newLevel,
-						Loot:           offlineLoot,
-					})
-				}
 			}
 		}
 
