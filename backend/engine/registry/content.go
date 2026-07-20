@@ -1,6 +1,9 @@
 package registry
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // ContentType describes a kind of data-driven content a plugin can register,
 // such as "loot_table", "class", or "mob".
@@ -30,6 +33,56 @@ func (r *Registry) DefineContentType(ct ContentType) error {
 	}
 	r.contentTypes[ct.Kind] = ct
 	return nil
+}
+
+// LoadContent parses raw for content id of the given kind by invoking the
+// kind's registered Register function, which typically stores the parsed value
+// via StoreContent. It errors if the kind was never defined.
+//
+// This is the driver that closes the content loop: DefineContentType registers
+// how to parse a kind, LoadContent feeds it raw bytes per id, and Lookup (or the
+// typed Content helper) retrieves the result.
+func (r *Registry) LoadContent(kind, id string, raw []byte) error {
+	r.mu.RLock()
+	ct, ok := r.contentTypes[kind]
+	r.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("registry: content type %q is not defined", kind)
+	}
+	return ct.Register(id, raw)
+}
+
+// DefineContent registers a typed content kind whose raw JSON is unmarshalled
+// into T and stored. It is the type-safe front door to the content registry: a
+// plugin declares its own content type (cards, tech nodes, city buildings, …)
+// without touching any shared content package.
+//
+//	registry.DefineContent[CardDef](reg, "card")
+//	reg.LoadContent("card", "fireball", rawJSON)
+//	card, ok := registry.Content[CardDef](reg, "card", "fireball")
+func DefineContent[T any](r *Registry, kind string) error {
+	return r.DefineContentType(ContentType{
+		Kind: kind,
+		Register: func(id string, raw []byte) error {
+			var v T
+			if err := json.Unmarshal(raw, &v); err != nil {
+				return fmt.Errorf("registry: parse %q content %q: %w", kind, id, err)
+			}
+			return r.StoreContent(kind, id, v)
+		},
+	})
+}
+
+// Content retrieves a typed content instance stored under kind and id. ok is
+// false when absent or when the stored value is not a T.
+func Content[T any](r *Registry, kind, id string) (T, bool) {
+	var zero T
+	v, ok := r.Lookup(kind, id)
+	if !ok {
+		return zero, false
+	}
+	t, ok := v.(T)
+	return t, ok
 }
 
 // Lookup returns the content instance previously stored under kind and id
