@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 )
@@ -36,16 +37,18 @@ type questService struct {
 	charService  CharacterGateway
 	inventorySvc InventoryWriter
 	eventBus     bus.EventBus
+	hooks        *hooks.Hooks
 }
 
-// NewQuestService builds the quest service. eventBus may be nil, in which case no
-// domain events are published (the service is otherwise unchanged).
-func NewQuestService(repo QuestRepository, charService CharacterGateway, inventorySvc InventoryWriter, eventBus bus.EventBus) QuestService {
+// NewQuestService builds the quest service. eventBus and hks may be nil (no
+// domain events published / no hooks applied, respectively).
+func NewQuestService(repo QuestRepository, charService CharacterGateway, inventorySvc InventoryWriter, eventBus bus.EventBus, hks *hooks.Hooks) QuestService {
 	return &questService{
 		repo:         repo,
 		charService:  charService,
 		inventorySvc: inventorySvc,
 		eventBus:     eventBus,
+		hooks:        hks,
 	}
 }
 
@@ -90,6 +93,12 @@ func (s *questService) AcceptQuest(ctx context.Context, charID int32, questID st
 		return ErrLevelRequirement
 	}
 
+	// 2b. Let plugins gate quest acceptance (prerequisites, faction locks, event
+	// windows). A returned error blocks the accept.
+	if err := hooks.DoAction(s.hooks, ctx, HookAccept, QuestAccept{CharacterID: charID, QuestID: questID}); err != nil {
+		return err
+	}
+
 	// 3. Verify if quest is already active or completed
 	activeQuests, err := s.repo.ListCharacterQuests(ctx, charID)
 	if err != nil {
@@ -115,6 +124,11 @@ func (s *questService) AcceptQuest(ctx context.Context, charID int32, questID st
 }
 
 func (s *questService) UpdateQuestProgress(ctx context.Context, charID int32, actionType string, target string, amount int32) error {
+	// Let plugins scale the progress amount (e.g. a "double progress" event).
+	amount = hooks.ApplyFilters(s.hooks, ctx, HookProgress, QuestProgressFilter{
+		CharacterID: charID, ActionType: actionType, Target: target, Amount: amount,
+	}).Amount
+
 	// 1. Fetch active quests
 	questsLog, err := s.repo.ListCharacterQuests(ctx, charID)
 	if err != nil {

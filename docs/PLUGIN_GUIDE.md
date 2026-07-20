@@ -102,6 +102,9 @@ these to add classes/mobs/loot with no code.
 | `combat.damage` | filter | `combat.DamageFilter{…, Damage}` | after damage computed, before it lands |
 | `loot.roll` | filter | `loot.LootRoll{TableID, Items}` | after a table is rolled, before return |
 | `character.rewards` | filter | `character.RewardsFilter{CharacterID, Gold, Exp}` | before gold/exp are applied |
+| `character.stats_recalc` | filter | `character.StatsRecalcFilter{CharacterID, DerivedStats}` | after derived stats recomputed, before cached (auras/buffs) |
+| `quest.accept` | action/veto | `quests.QuestAccept{CharacterID, QuestID}` | on accept, after the level check (prerequisites, locks) |
+| `quest.progress` | filter | `quests.QuestProgressFilter{…, Amount}` | before progress is applied (scale progress) |
 
 ### Events (subscribe via `Bus()`)
 

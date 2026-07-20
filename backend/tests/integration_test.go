@@ -94,7 +94,7 @@ func TestEndToEndGameLoop(t *testing.T) {
 	charService.SetEquipmentProvider(invService)
 
 	questRepo := quests.NewQuestRepository(db.Store)
-	questService := quests.NewQuestService(questRepo, charService, invService, nil)
+	questService := quests.NewQuestService(questRepo, charService, invService, nil, nil)
 
 	lootRepo := loot.NewLootRepository(db.Store)
 	lootService := loot.NewLootService(lootRepo)
@@ -505,7 +505,7 @@ func TestDeadAttackerAndDefender(t *testing.T) {
 	charService.SetEquipmentProvider(invService)
 
 	questRepo := quests.NewQuestRepository(db.Store)
-	questService := quests.NewQuestService(questRepo, charService, invService, nil)
+	questService := quests.NewQuestService(questRepo, charService, invService, nil, nil)
 
 	lootRepo := loot.NewLootRepository(db.Store)
 	lootService := loot.NewLootService(lootRepo)

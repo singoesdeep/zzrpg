@@ -12,3 +12,15 @@ type RewardsFilter struct {
 	Gold        int64
 	Exp         int64
 }
+
+// HookStatsRecalc filters a character's derived stats after they are recomputed
+// (on level-up or equipment change) and before they are cached. A plugin can add
+// auras, global buffs, or prestige bonuses.
+const HookStatsRecalc = "character.stats_recalc"
+
+// StatsRecalcFilter is the value threaded through HookStatsRecalc filters.
+// CharacterID is read-only context; DerivedStats is the map a filter may modify.
+type StatsRecalcFilter struct {
+	CharacterID  int64
+	DerivedStats map[string]float64
+}

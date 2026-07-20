@@ -699,7 +699,7 @@ func (questsPlugin) Init(ic plugin.InitContext) error {
 	invService := registry.MustResolve[inventory.InventoryService](reg, "inventory")
 
 	questRepo := quests.NewQuestRepository(db.Store)
-	questService := quests.NewQuestService(questRepo, charService, invService, ic.Bus())
+	questService := quests.NewQuestService(questRepo, charService, invService, ic.Bus(), ic.Hooks())
 	if err := registry.Provide(reg, "quests", questService); err != nil {
 		return err
 	}

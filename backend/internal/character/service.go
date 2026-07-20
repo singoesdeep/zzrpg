@@ -137,6 +137,11 @@ func (s *characterService) RecalculateStats(ctx context.Context, charID int64) e
 		finalStats = FallbackDerivedStats(charWithStats.Stats.BaseStats)
 	}
 
+	// 4b. Let plugins adjust the derived stats before they are cached — auras,
+	// global buffs, prestige bonuses, ... The filter owns the map it returns.
+	finalStats = hooks.ApplyFilters(s.hooks, ctx, HookStatsRecalc,
+		StatsRecalcFilter{CharacterID: charID, DerivedStats: finalStats}).DerivedStats
+
 	// 5. Save/Update derived stats cache in database
 	if err := s.repo.UpdateStats(ctx, charID, finalStats); err != nil {
 		return err

@@ -2,10 +2,12 @@ package quests
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
+	"github.com/singoesdeep/zzrpg/backend/engine/hooks"
 	"github.com/singoesdeep/zzrpg/backend/internal/character"
 	"github.com/singoesdeep/zzrpg/backend/internal/inventory"
 )
@@ -164,7 +166,7 @@ func TestQuestProgressionAndRewards(t *testing.T) {
 	}
 	inventorySvc := &mockInventoryService{}
 
-	service := NewQuestService(repo, charService, inventorySvc, nil)
+	service := NewQuestService(repo, charService, inventorySvc, nil, nil)
 
 	// 1. Create a 2-step Quest Definition
 	questDef := &QuestDefinition{
@@ -272,7 +274,7 @@ func TestQuestEmitsLifecycleEvents(t *testing.T) {
 		completed <- ev.(QuestCompleted)
 	})
 
-	service := NewQuestService(repo, charService, &mockInventoryService{}, eventBus)
+	service := NewQuestService(repo, charService, &mockInventoryService{}, eventBus, nil)
 
 	def := &QuestDefinition{
 		ID:       "slime_hunt",
@@ -304,5 +306,51 @@ func TestQuestEmitsLifecycleEvents(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for QuestCompleted")
+	}
+}
+
+// TestQuestAcceptHookVeto proves an action hook can block accepting a quest.
+func TestQuestAcceptHookVeto(t *testing.T) {
+	repo := newMockQuestRepository()
+	charSvc := &mockCharService{char: &character.CharacterWithStats{
+		Character: character.Character{ID: 1, Level: 10},
+	}}
+	hks := hooks.New(nil)
+	hooks.AddAction(hks, HookAccept, 10, func(_ context.Context, qa QuestAccept) error {
+		return errors.New("locked: finish the prologue first")
+	})
+	service := NewQuestService(repo, charSvc, &mockInventoryService{}, nil, hks)
+	_ = service.CreateDefinition(context.Background(), &QuestDefinition{ID: "q1", MinLevel: 1})
+
+	err := service.AcceptQuest(context.Background(), 1, "q1")
+	if err == nil || err.Error() != "locked: finish the prologue first" {
+		t.Errorf("expected the accept hook to veto, got %v", err)
+	}
+}
+
+// TestQuestProgressHookFilter proves a filter can scale quest progress.
+func TestQuestProgressHookFilter(t *testing.T) {
+	repo := newMockQuestRepository()
+	charSvc := &mockCharService{char: &character.CharacterWithStats{
+		Character: character.Character{ID: 1, Level: 10},
+	}}
+	hks := hooks.New(nil)
+	hooks.AddFilter(hks, HookProgress, 10, func(_ context.Context, f QuestProgressFilter) QuestProgressFilter {
+		f.Amount *= 2 // double-progress event
+		return f
+	})
+	service := NewQuestService(repo, charSvc, &mockInventoryService{}, nil, hks)
+	_ = service.CreateDefinition(context.Background(), &QuestDefinition{
+		ID: "kill5", MinLevel: 1,
+		Steps: []QuestStep{{Type: "KILL_MOB", Target: "slime", Count: 5}},
+	})
+	_ = service.AcceptQuest(context.Background(), 1, "kill5")
+
+	if err := service.UpdateQuestProgress(context.Background(), 1, "KILL_MOB", "slime", 1); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	cq, _ := repo.GetCharacterQuest(context.Background(), 1, "kill5")
+	if cq.Progress[0] != 2 {
+		t.Errorf("expected progress doubled to 2, got %d", cq.Progress[0])
 	}
 }

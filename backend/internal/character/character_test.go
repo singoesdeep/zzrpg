@@ -206,3 +206,27 @@ func TestRewardsHookFilter(t *testing.T) {
 		t.Errorf("expected exp 50 unchanged, got %d", got.Character.Experience)
 	}
 }
+
+// TestStatsRecalcHookFilter proves a plugin can inject derived stats (auras,
+// global buffs) via HookStatsRecalc during recalculation.
+func TestStatsRecalcHookFilter(t *testing.T) {
+	repo := newMockCharacterRepository()
+	hks := hooks.New(nil)
+	hooks.AddFilter(hks, HookStatsRecalc, 10, func(_ context.Context, f StatsRecalcFilter) StatsRecalcFilter {
+		f.DerivedStats["AURA"] = 999 // a global buff plugin
+		return f
+	})
+	service := NewCharacterService(repo, nil, nil, nil, hks)
+
+	char, err := service.Create(context.Background(), 1, "AuraHero", "WARRIOR")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := service.RecalculateStats(context.Background(), char.ID); err != nil {
+		t.Fatalf("recalc: %v", err)
+	}
+
+	if got := repo.characters[char.ID].Stats.DerivedStats["AURA"]; got != 999 {
+		t.Errorf("expected the hook-injected AURA stat 999 to be cached, got %v", got)
+	}
+}
