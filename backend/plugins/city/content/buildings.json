@@ -1,0 +1,5 @@
+{
+  "gold_mine":   { "id": "gold_mine",   "name": "Gold Mine",   "resource": "gold", "base_per_min": 8,  "per_level": 4, "cost": { "gold": 40 } },
+  "lumber_camp": { "id": "lumber_camp", "name": "Lumber Camp", "resource": "wood", "base_per_min": 12, "per_level": 6, "cost": { "gold": 60 } },
+  "sawmill":     { "id": "sawmill",     "name": "Sawmill",     "resource": "plank","base_per_min": 3,  "per_level": 2, "cost": { "gold": 100, "wood": 50 } }
+}
