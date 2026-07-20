@@ -9,7 +9,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.8.0
-	github.com/singoesdeep/zzstat/bindings/go v0.0.0-20260718225504-d2356c8d467b
+	github.com/singoesdeep/zzstat/bindings/go v0.0.0-20260719175047-a9e1e78827b5
 	golang.org/x/crypto v0.54.0
 )
 
@@ -32,5 +32,3 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 )
-
-replace github.com/singoesdeep/zzstat/bindings/go => ../../zzstat/bindings/go

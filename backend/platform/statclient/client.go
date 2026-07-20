@@ -86,10 +86,13 @@ var (
 func NewClient(addr string) (Client, error) {
 	// Dynamically load the library once
 	loadOnce.Do(func() {
-		// Attempt fallback search paths
+		// Search paths, in order of precedence:
+		//   1. ZZSTAT_LIB_PATH — explicit override (used in Docker/production).
+		//   2. ./libzzstat_ffi.so — shipped next to the binary.
+		//   3. libzzstat_ffi.so — resolved via the loader's search path
+		//      (system dirs / LD_LIBRARY_PATH).
 		paths := []string{
 			os.Getenv("ZZSTAT_LIB_PATH"),
-			"/home/singo/github.com/singoesdeep/zzstat/target/release/libzzstat_ffi.so",
 			"./libzzstat_ffi.so",
 			"libzzstat_ffi.so",
 		}
