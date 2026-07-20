@@ -19,12 +19,6 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 
-	"github.com/singoesdeep/zzrpg/backend/game/auth"
-	"github.com/singoesdeep/zzrpg/backend/game/character"
-	"github.com/singoesdeep/zzrpg/backend/game/combat"
-	"github.com/singoesdeep/zzrpg/backend/game/inventory"
-	"github.com/singoesdeep/zzrpg/backend/game/loot"
-	"github.com/singoesdeep/zzrpg/backend/game/quests"
 	"github.com/singoesdeep/zzrpg/backend/pkg/cache"
 	"github.com/singoesdeep/zzrpg/backend/pkg/metrics"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
@@ -113,14 +107,8 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.cache = appCache
 
 	p.hub = socket.NewHub()
-	// Translate transport-level disconnects into a domain logout event, without
-	// the socket layer depending on the character domain.
-	eventBus := ic.Bus()
-	p.hub.SetLogoutHandler(func(characterID int64) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = eventBus.Publish(ctx, character.CharacterLoggedOut{CharacterID: characterID})
-	})
+	// The hub's logout handler (translating a disconnect into a domain event) is
+	// wired by the owning domain plugin, keeping core domain-agnostic.
 	p.router = socket.NewMessageRouter()
 	// Gate owned WS message types on their plugin's activation state so the
 	// Admin Dashboard toggle actually suppresses live traffic.
@@ -132,12 +120,9 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.outboxRelay = outbox.NewRelay(p.db.Store, ic.Bus(), log)
 	p.outboxRetention = cfg.OutboxRetention
 
+	// Domain plugins register their own event decoders into this registry during
+	// their Init (they run after core), so core stays free of domain imports.
 	decoders := p.outboxRelay.Registry()
-	character.RegisterEventDecoders(decoders)
-	combat.RegisterEventDecoders(decoders)
-	quests.RegisterEventDecoders(decoders)
-	inventory.RegisterEventDecoders(decoders)
-	loot.RegisterEventDecoders(decoders)
 	if err := registry.Provide(reg, "eventDecoders", decoders); err != nil {
 		return err
 	}
@@ -162,7 +147,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	}
 
 	p.registerHTTPEndpoints(mux, reg, log)
-	p.registerWebSocket(ctx, mux, reg, cfg.JWTSecret, cfg.AllowOrigin)
+	p.registerWebSocket(ctx, mux, reg, cfg.AllowOrigin)
 
 	return nil
 }
@@ -312,7 +297,7 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 	})
 }
 
-func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, jwtSecret string, allowOrigin func(origin string) bool) {
+func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, allowOrigin func(origin string) bool) {
 	p.router.Handle("CHAT", func(client *socket.Client, msg socket.WSMessage) {
 		var payload socket.ChatPayload
 		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -328,24 +313,23 @@ func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *
 		p.hub.Broadcast <- broadMsg
 	})
 
+	// Core only cleans up the transport-level session on disconnect; domain
+	// side effects (e.g. last-active, logout events) are wired by domain plugins
+	// via the hub's logout handler.
 	disconnect := func(client *socket.Client) {
 		if client.CharacterID > 0 {
-			// The connection is gone, so use a fresh bounded context rather than
-			// the (now-cancelled) connection context for this cleanup write.
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if cs, err := registry.Resolve[character.CharacterService](reg, "character"); err == nil {
-				_ = cs.UpdateLastActive(cleanupCtx, client.CharacterID)
-			}
 			p.sessionReg.EndSession(client.CharacterID)
 		}
 	}
+	// The WS authenticator is provided by an auth plugin (if any) under
+	// "wsAuthenticator"; resolved per-connection since that plugin inits after
+	// core registers this route. No authenticator => connections are rejected.
 	authenticate := func(token string) (int64, string, bool) {
-		claims, err := auth.ParseAccessToken(jwtSecret, token)
+		a, err := registry.Resolve[socket.Authenticator](reg, "wsAuthenticator")
 		if err != nil {
 			return 0, "", false
 		}
-		return claims.UserID, claims.Username, true
+		return a(token)
 	}
 	mux.HandleFunc("/ws", socket.ServeWS(ctx, p.hub, authenticate, allowOrigin, p.router.Dispatch, disconnect))
 }

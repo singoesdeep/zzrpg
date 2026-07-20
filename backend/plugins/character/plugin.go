@@ -3,6 +3,7 @@ package character
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
 	"github.com/singoesdeep/zzrpg/backend/engine/bus"
@@ -63,7 +64,18 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 
+	// Own the character-domain event decoders (moved out of core).
+	character.RegisterEventDecoders(p.decoders)
+
 	p.hub = registry.MustResolve[*socket.Hub](reg, "hub")
+	// Translate a transport disconnect into domain side effects, without the
+	// socket/core layers depending on the character domain.
+	p.hub.SetLogoutHandler(func(charID int64) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = p.charService.UpdateLastActive(ctx, charID)
+		_ = p.eventBus.Publish(ctx, character.CharacterLoggedOut{CharacterID: charID})
+	})
 	router := registry.MustResolve[*socket.MessageRouter](reg, "msgRouter")
 	router.HandleOwned("SELECT_CHARACTER", "character", p.handleSelectCharacter)
 

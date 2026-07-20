@@ -5,6 +5,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/content"
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
@@ -53,6 +54,10 @@ func (Plugin) Meta() plugin.Meta {
 
 func (Plugin) Init(ic plugin.InitContext) error {
 	reg := ic.Registry()
+	// Own this domain's event decoders (moved out of core).
+	if decoders, err := registry.Resolve[*outbox.Registry](reg, "eventDecoders"); err == nil {
+		combat.RegisterEventDecoders(decoders)
+	}
 
 	charService := registry.MustResolve[character.CharacterService](reg, "character")
 	invService := registry.MustResolve[inventory.InventoryService](reg, "inventory")

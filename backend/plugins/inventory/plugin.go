@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"github.com/singoesdeep/zzrpg/backend/engine/admin"
+	"github.com/singoesdeep/zzrpg/backend/engine/outbox"
 	"github.com/singoesdeep/zzrpg/backend/engine/plugin"
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
@@ -29,6 +30,10 @@ func (Plugin) Meta() plugin.Meta {
 
 func (Plugin) Init(ic plugin.InitContext) error {
 	reg := ic.Registry()
+	// Own this domain's event decoders (moved out of core).
+	if decoders, err := registry.Resolve[*outbox.Registry](reg, "eventDecoders"); err == nil {
+		inventory.RegisterEventDecoders(decoders)
+	}
 	mux := ic.Mux()
 	jwt := ic.Config().JWTSecret
 

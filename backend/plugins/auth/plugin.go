@@ -9,6 +9,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/engine/registry"
 	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
+	"github.com/singoesdeep/zzrpg/backend/platform/socket"
 )
 
 // AdminOnly composes JWT auth with an admin-role check for mutating
@@ -35,6 +36,19 @@ func (Plugin) Init(ic plugin.InitContext) error {
 	reg := ic.Registry()
 	mux := ic.Mux()
 	cfg := ic.Config()
+
+	// Provide the WebSocket authenticator so core can gate /ws without importing
+	// the auth domain (resolved per-connection by core).
+	jwtSecret := cfg.JWTSecret
+	if err := registry.Provide(reg, "wsAuthenticator", socket.Authenticator(func(token string) (int64, string, bool) {
+		claims, err := auth.ParseAccessToken(jwtSecret, token)
+		if err != nil {
+			return 0, "", false
+		}
+		return claims.UserID, claims.Username, true
+	})); err != nil {
+		return err
+	}
 
 	db := registry.MustResolve[*database.DB](reg, "db")
 	userRepo := auth.NewUserRepository(db.Store)
