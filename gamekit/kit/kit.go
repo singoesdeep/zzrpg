@@ -12,6 +12,7 @@ import (
 	"io/fs"
 
 	"github.com/singoesdeep/zzrpg/gamekit/component"
+	"github.com/singoesdeep/zzrpg/gamekit/economy"
 	"github.com/singoesdeep/zzrpg/gamekit/entity"
 	"github.com/singoesdeep/zzrpg/gamekit/inventory"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
@@ -43,6 +44,7 @@ type Kit struct {
 	Stats       *stats.Service
 	Progression *progression.Service
 	Inventory   *inventory.Service
+	Economy     *economy.Service
 	World       *world.World
 	Composer    *template.Composer
 	Scheduler   *system.Scheduler
@@ -50,6 +52,7 @@ type Kit struct {
 	StatsStore       component.Store[stats.Stats]
 	ProgressionStore component.Store[progression.Progression]
 	InventoryStore   component.Store[inventory.Inventory]
+	WalletStore      component.Store[economy.Wallet]
 }
 
 type kinder struct{ repo entity.Repo }
@@ -67,15 +70,18 @@ func New(d Deps) *Kit {
 	statsStore := component.NewJSONStore[stats.Stats](d.Store, "stats", "entity_stats")
 	progStore := component.NewJSONStore[progression.Progression](d.Store, "progression", "entity_progression")
 	invStore := component.NewJSONStore[inventory.Inventory](d.Store, "inventory", "entity_inventory")
+	walletStore := component.NewJSONStore[economy.Wallet](d.Store, "wallet", "entity_wallet")
 
 	statsSvc := stats.NewService(statsStore, stats.NewFormulaResolver(d.Formulas), kinder{entities}, d.Hooks)
 	progSvc := progression.NewService(progStore, d.Curve, d.Hooks)
 	invSvc := inventory.NewService(invStore, d.Hooks)
+	econSvc := economy.NewService(walletStore, d.Hooks)
 
 	w := world.New(entities)
 	w.Register(statsStore)
 	w.Register(progStore)
 	w.Register(invStore)
+	w.Register(walletStore)
 
 	composer := template.NewComposer(entities)
 	composer.RegisterComponent("stats", func(ctx context.Context, id int64, raw json.RawMessage) error {
@@ -88,13 +94,14 @@ func New(d Deps) *Kit {
 	})
 	composer.RegisterComponent("progression", template.Init(progStore))
 	composer.RegisterComponent("inventory", template.Init(invStore))
+	composer.RegisterComponent("wallet", template.Init(walletStore))
 
 	sch := system.NewScheduler(w, d.Bus, system.NewPgLastRun(d.Store, "entity_system_runs"))
 
 	return &Kit{
-		Entities: entities, Stats: statsSvc, Progression: progSvc, Inventory: invSvc,
+		Entities: entities, Stats: statsSvc, Progression: progSvc, Inventory: invSvc, Economy: econSvc,
 		World: w, Composer: composer, Scheduler: sch,
-		StatsStore: statsStore, ProgressionStore: progStore, InventoryStore: invStore,
+		StatsStore: statsStore, ProgressionStore: progStore, InventoryStore: invStore, WalletStore: walletStore,
 	}
 }
 

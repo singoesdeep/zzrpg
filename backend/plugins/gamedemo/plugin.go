@@ -9,6 +9,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 
 	"github.com/singoesdeep/zzrpg/gamekit/component"
+	"github.com/singoesdeep/zzrpg/gamekit/economy"
 	"github.com/singoesdeep/zzrpg/gamekit/inventory"
 	"github.com/singoesdeep/zzrpg/gamekit/kit"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
@@ -79,6 +81,7 @@ type Plugin struct {
 	stats    *stats.Service
 	prog     *progression.Service
 	inv      *inventory.Service
+	econ     *economy.Service
 	res      component.Store[Resources]
 	health   component.Store[Health]
 	combat   *Combat
@@ -105,7 +108,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	// inventory components + services, world, composer (with the built-in
 	// initializers), and the scheduler.
 	k := kit.New(kit.Deps{Store: db.Store, Hooks: h, Bus: ic.Bus(), Formulas: byKind, Curve: progression.Curve{Base: 50, Exp: 2}})
-	p.stats, p.prog, p.inv = k.Stats, k.Progression, k.Inventory
+	p.stats, p.prog, p.inv, p.econ = k.Stats, k.Progression, k.Inventory, k.Economy
 	p.composer, p.sch = k.Composer, k.Scheduler
 
 	// This game's OWN components on top of the built-ins.
@@ -155,6 +158,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	mux.HandleFunc("POST /api/v1/demo/grant-xp/{id}", p.grantXP)
 	mux.HandleFunc("POST /api/v1/demo/collect/{id}", p.collect)
 	mux.HandleFunc("POST /api/v1/demo/attack/{attacker}/{defender}", p.attack)
+	mux.HandleFunc("POST /api/v1/demo/spend/{id}", p.spend)
 	return nil
 }
 
@@ -179,8 +183,9 @@ func (p *Plugin) getEntity(w http.ResponseWriter, r *http.Request) {
 	inv, _ := p.inv.Get(r.Context(), id)
 	res, _, _ := p.res.Get(r.Context(), id)
 	hp, _, _ := p.health.Get(r.Context(), id)
+	wallet, _ := p.econ.Get(r.Context(), id)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res, "health": hp,
+		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res, "health": hp, "wallet": wallet,
 	})
 }
 
@@ -193,6 +198,24 @@ func (p *Plugin) attack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, res)
+}
+
+// spend debits the entity's wallet through the built-in economy toolkit,
+// returning 402 when it can't afford the cost.
+func (p *Plugin) spend(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	currency := r.URL.Query().Get("currency")
+	amount, _ := strconv.ParseInt(r.URL.Query().Get("amount"), 10, 64)
+	wallet, err := p.econ.Spend(r.Context(), id, currency, amount)
+	if errors.Is(err, economy.ErrInsufficient) {
+		httpx.WriteError(w, http.StatusPaymentRequired, "INSUFFICIENT", err.Error())
+		return
+	}
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "SPEND", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"wallet": wallet})
 }
 
 func (p *Plugin) grantXP(w http.ResponseWriter, r *http.Request) {
