@@ -133,5 +133,25 @@ rebuild) when consumers are few and the legacy shape itself is the problem.
   quest tests pass unmodified. This is the leanest version of the pattern: when
   the mechanism has no side effects, extract it as a pure function rather than a
   stateful Engine/Roller.
-- **Next**: combat — pick delete-and-rebuild or engine-only per the fan-in test
-  above; likely engine-only given creature/character coupling.
+- **combat → gamekit/vitals: PARTIALLY SWAPPED (engine-only, narrow cut).**
+  combat's damage math is already external (native `zzstat`, not something to
+  duplicate in gamekit — its gamekit-native combat story is `gamedemo`'s
+  ATTACK-DEFENSE + HookDamage/HookKill instead), so there was no clean
+  mechanism to extract from `game/combat` as a whole. The one genuinely
+  genre-agnostic piece was `platform/session.Registry`'s HP/MP pool: atomic
+  deduct-and-reserve-kill (the race-safe primitive that stops two concurrent
+  attackers both being credited for one kill), heal, spend-MP, revive — no
+  damage formula, no character concept. Extracted as `gamekit/vitals.Registry`;
+  `platform/session.Registry` is now a thin adapter translating `Pool` ↔
+  `CharacterSession`. One regression test needed a 1-line fix (it constructed
+  `Registry` via a private-field struct literal instead of `NewRegistry()` — an
+  internal-detail dependency, not a behavioural one); every other test,
+  including the concurrent-kill-credit regression test, passes unmodified
+  against the new engine (also re-verified with `-race`). combat's own
+  orchestration (creature resolution, skills, zzstat call, hooks, events)
+  is untouched.
+- **Lesson**: not every subsystem has a clean framework/content split at the
+  whole-package level — sometimes only a piece does. Extract the piece with
+  a real seam (here, a self-contained concurrency primitive) rather than
+  forcing a full-package extraction where the "framework" isn't actually
+  separable from a specific integration (here, zzstat).

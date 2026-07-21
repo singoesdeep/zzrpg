@@ -8,10 +8,14 @@
 // and provides it through the DI registry); consumers receive it by injection,
 // not via a package global. This makes it possible to run isolated worlds/tests
 // with independent session state.
+//
+// The pool mechanism itself — concurrency-safe HP/MP with race-safe kill
+// reservation — is gamekit/vitals; this package is the adapter to this RPG's
+// CharacterSession naming.
 package session
 
 import (
-	"sync"
+	gvitals "github.com/singoesdeep/zzrpg/gamekit/vitals"
 )
 
 type CharacterSession struct {
@@ -24,149 +28,63 @@ type CharacterSession struct {
 }
 
 type Registry struct {
-	mu       sync.RWMutex
-	sessions map[int64]*CharacterSession
+	vitals *gvitals.Registry
 }
 
 // NewRegistry creates an empty session registry. Each call yields an independent
 // instance, so tests and isolated worlds don't share session state.
 func NewRegistry() *Registry {
-	return &Registry{
-		sessions: make(map[int64]*CharacterSession),
-	}
+	return &Registry{vitals: gvitals.NewRegistry()}
 }
 
-// StartSession creates (or replaces) a session and returns a value copy. The
-// registry keeps the authoritative pointer internally; callers never receive it,
-// so session fields can only be mutated through the registry's locked methods.
+// StartSession creates (or replaces) a session and returns a value copy.
 func (r *Registry) StartSession(charID int64, maxHP, maxMP float64) CharacterSession {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	session := &CharacterSession{
-		CharacterID: charID,
-		MaxHP:       maxHP,
-		CurrentHP:   maxHP,
-		MaxMP:       maxMP,
-		CurrentMP:   maxMP,
-		IsDead:      false,
-	}
-	r.sessions[charID] = session
-	return *session
+	return toSession(r.vitals.Start(charID, maxHP, maxMP))
 }
 
-// GetSession returns a consistent value snapshot of the session taken under the
-// read lock. Returning a copy (not the internal pointer) prevents data races
-// where a caller reads session fields while another goroutine mutates them.
+// GetSession returns a consistent value snapshot of the session.
 func (r *Registry) GetSession(charID int64) (CharacterSession, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	sess, exists := r.sessions[charID]
-	if !exists {
-		return CharacterSession{}, false
-	}
-	return *sess, true
+	p, ok := r.vitals.Get(charID)
+	return toSession(p), ok
 }
 
-// DeductHPAndReserveKill atomically applies damage and reports whether THIS call
-// landed the killing blow (killedNow). Death-triggered side effects (loot, quest
-// progress, rewards) must be gated on killedNow so that two concurrent attackers
-// finishing the same target cannot both be credited with the kill.
+// DeductHPAndReserveKill atomically applies damage and reports whether THIS
+// call landed the killing blow (killedNow). Death-triggered side effects (loot,
+// quest progress, rewards) must be gated on killedNow so that two concurrent
+// attackers finishing the same target cannot both be credited with the kill.
 func (r *Registry) DeductHPAndReserveKill(charID int64, amount float64) (hp float64, isDead bool, killedNow bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sess, exists := r.sessions[charID]
-	if !exists {
-		return 0, false, false
-	}
-	if sess.IsDead {
-		// Already dead: this attack did not land the kill.
-		return 0, true, false
-	}
-
-	sess.CurrentHP -= amount
-	if sess.CurrentHP <= 0 {
-		sess.CurrentHP = 0
-		sess.IsDead = true
-		killedNow = true
-	}
-	return sess.CurrentHP, sess.IsDead, killedNow
+	return r.vitals.DeductAndReserveKill(charID, amount)
 }
 
 func (r *Registry) EndSession(charID int64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	delete(r.sessions, charID)
+	r.vitals.End(charID)
 }
 
 func (r *Registry) DeductHP(charID int64, amount float64) (float64, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sess, exists := r.sessions[charID]
-	if !exists {
-		return 0, false
-	}
-
-	if sess.IsDead {
-		return 0, true
-	}
-
-	sess.CurrentHP -= amount
-	if sess.CurrentHP <= 0 {
-		sess.CurrentHP = 0
-		sess.IsDead = true
-	}
-
-	return sess.CurrentHP, sess.IsDead
+	return r.vitals.DeductHP(charID, amount)
 }
 
 func (r *Registry) Heal(charID int64, amount float64) (float64, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sess, exists := r.sessions[charID]
-	if !exists {
-		return 0, false
-	}
-
-	if sess.IsDead {
-		return 0, false
-	}
-
-	sess.CurrentHP += amount
-	if sess.CurrentHP > sess.MaxHP {
-		sess.CurrentHP = sess.MaxHP
-	}
-
-	return sess.CurrentHP, true
+	return r.vitals.Heal(charID, amount)
 }
 
 // SpendMP deducts amount from a character's current MP if it has enough,
 // returning whether the spend succeeded. Used for skill mana costs.
 func (r *Registry) SpendMP(charID int64, amount float64) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	sess, exists := r.sessions[charID]
-	if !exists || sess.CurrentMP < amount {
-		return false
-	}
-	sess.CurrentMP -= amount
-	return true
+	return r.vitals.SpendMP(charID, amount)
 }
 
 func (r *Registry) Revive(charID int64) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	return r.vitals.Revive(charID)
+}
 
-	sess, exists := r.sessions[charID]
-	if !exists {
-		return false
+func toSession(p gvitals.Pool) CharacterSession {
+	return CharacterSession{
+		CharacterID: p.EntityID,
+		CurrentHP:   p.CurrentHP,
+		MaxHP:       p.MaxHP,
+		CurrentMP:   p.CurrentMP,
+		MaxMP:       p.MaxMP,
+		IsDead:      p.Dead,
 	}
-
-	sess.CurrentHP = sess.MaxHP
-	sess.IsDead = false
-	return true
 }

@@ -12,7 +12,7 @@ import (
 // saw IsDead==true triggered loot/quest progression. Run under -race to also
 // confirm there is no data race on the session fields.
 func TestDeductHPAndReserveKillCreditsExactlyOneKiller(t *testing.T) {
-	r := &Registry{sessions: make(map[int64]*CharacterSession)}
+	r := NewRegistry()
 	r.StartSession(7, 100, 50)
 
 	const attackers = 50
