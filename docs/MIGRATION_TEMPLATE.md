@@ -87,13 +87,41 @@ plugin, a lifeskills plugin, etc. each register their own producers without
 touching idlekit. Port a subsystem by extracting its *framework* into gamekit and
 leaving its *content* as plugins.
 
+## A second pattern: swap the engine, keep the contract
+
+idle had few, controllable consumers, so the pilot could delete the legacy
+plugin outright. **loot** has wide fan-in (`combat`, `killreward`,
+`character.events`, `tests/integration_test.go`) where forcing every consumer
+onto a new type immediately is unnecessary risk for no behavioural gain — the
+roll *mechanism* (weighted probability, RNG concurrency-safety) was already
+genre-agnostic; only the *types* (`LootTable`/`DroppedItem`) are RPG-flavoured.
+
+So for a widely-depended-on subsystem: extract the mechanism into a gamekit
+toolkit taking its inputs as **funcs, not concrete stores** (mirrors
+`gidle.Deps.StateFor`/`Apply`) — here, `EntriesFor(ctx, tableID) ([]Entry,
+error)` instead of owning a `Repo`. Then rewrite the legacy package's service to
+build a gamekit `Roller`/`Engine` internally and translate types at the
+boundary, keeping every exported name and behaviour identical. **The existing,
+untouched tests are the parity proof** — they exercise the public contract, so
+if they pass unmodified, the swap is behaviourally invisible to every consumer.
+Nobody importing `game/loot` needs to change; the roll algorithm underneath is
+now gamekit's.
+
+Use this pattern (swap the engine, keep the contract) when a subsystem has many
+consumers and its types are already reasonable; use the idle pattern (delete and
+rebuild) when consumers are few and the legacy shape itself is the problem.
+
 ## Status
 
-- **idle → idlekit: SWAPPED.** Legacy `plugins/idle` and `game/idle` deleted;
-  `idlekit` rebuilt on the new `gamekit/idle` framework owns idle end to end in
-  `cmd/server` — write bridge on (gold/exp → `character.AddRewards`, resources →
-  a wallet `crafting` spends), same `/characters/{id}/idle/*` endpoint contract
-  (buildings/upgrade dropped: buildings become a plugin). Boot-verified: crafting
-  resolves idlekit's `resourceWallet`; suites green.
-- **Next**: loot, quests, combat — same recipe (framework → gamekit toolkit,
-  content → plugins), enable write bridge, retire the legacy plugin.
+- **idle → idlekit: SWAPPED (delete-and-rebuild).** Legacy `plugins/idle` and
+  `game/idle` deleted; `idlekit` on `gamekit/idle` owns idle end to end in
+  `cmd/server` — write bridge on, same `/characters/{id}/idle/*` contract.
+  `backend/plugins/buildings` proves the framework/content split: it registers
+  its own Producers on idlekit's shared registry and injects its own inputs via
+  `gamekit/idle.HookState` — zero changes to idlekit.
+- **loot → gamekit/loot: SWAPPED (engine-only).** `gamekit/loot.Roller` now does
+  the weighted-roll math and RNG; `game/loot` is a thin adapter (types, DB/cache
+  persistence, admin CRUD, its own `HookRoll` for back-compat) — combat,
+  killreward, character events, and existing tests are untouched and still pass.
+- **Next**: quests, combat — pick delete-and-rebuild or engine-only per the fan-in
+  test above.
