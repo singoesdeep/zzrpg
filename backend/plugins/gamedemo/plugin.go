@@ -26,6 +26,7 @@ import (
 	"github.com/singoesdeep/zzrpg/gamekit/inventory"
 	"github.com/singoesdeep/zzrpg/gamekit/kit"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
+	"github.com/singoesdeep/zzrpg/gamekit/relation"
 	"github.com/singoesdeep/zzrpg/gamekit/stats"
 	"github.com/singoesdeep/zzrpg/gamekit/system"
 	"github.com/singoesdeep/zzrpg/gamekit/template"
@@ -82,6 +83,7 @@ type Plugin struct {
 	prog     *progression.Service
 	inv      *inventory.Service
 	econ     *economy.Service
+	rel      relation.Repo
 	res      component.Store[Resources]
 	health   component.Store[Health]
 	combat   *Combat
@@ -108,7 +110,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	// inventory components + services, world, composer (with the built-in
 	// initializers), and the scheduler.
 	k := kit.New(kit.Deps{Store: db.Store, Hooks: h, Bus: ic.Bus(), Formulas: byKind, Curve: progression.Curve{Base: 50, Exp: 2}})
-	p.stats, p.prog, p.inv, p.econ = k.Stats, k.Progression, k.Inventory, k.Economy
+	p.stats, p.prog, p.inv, p.econ, p.rel = k.Stats, k.Progression, k.Inventory, k.Economy, k.Relations
 	p.composer, p.sch = k.Composer, k.Scheduler
 
 	// This game's OWN components on top of the built-ins.
@@ -159,12 +161,32 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	mux.HandleFunc("POST /api/v1/demo/collect/{id}", p.collect)
 	mux.HandleFunc("POST /api/v1/demo/attack/{attacker}/{defender}", p.attack)
 	mux.HandleFunc("POST /api/v1/demo/spend/{id}", p.spend)
+	mux.HandleFunc("POST /api/v1/demo/build/{city}/{kind}", p.build)
 	return nil
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {
 	p.sch.Run(rc.Context()) // starts tick + event dispatch (non-blocking)
 	return nil
+}
+
+// edgeContains is this game's relation type: a city contains its buildings.
+const edgeContains = "contains"
+
+// build spawns a building and links it under a city via the relation graph — the
+// RTS/city-builder containment pattern that entity.OwnerID alone can't express.
+func (p *Plugin) build(w http.ResponseWriter, r *http.Request) {
+	city, _ := strconv.ParseInt(r.PathValue("city"), 10, 64)
+	b, err := p.composer.Spawn(r.Context(), r.PathValue("kind"), 0)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "BUILD", err.Error())
+		return
+	}
+	if err := p.rel.Link(r.Context(), city, edgeContains, b.ID); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "BUILD", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, b)
 }
 
 func (p *Plugin) spawn(w http.ResponseWriter, r *http.Request) {
@@ -184,8 +206,9 @@ func (p *Plugin) getEntity(w http.ResponseWriter, r *http.Request) {
 	res, _, _ := p.res.Get(r.Context(), id)
 	hp, _, _ := p.health.Get(r.Context(), id)
 	wallet, _ := p.econ.Get(r.Context(), id)
+	buildings, _ := p.rel.To(r.Context(), id, edgeContains)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res, "health": hp, "wallet": wallet,
+		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res, "health": hp, "wallet": wallet, "buildings": buildings,
 	})
 }
 

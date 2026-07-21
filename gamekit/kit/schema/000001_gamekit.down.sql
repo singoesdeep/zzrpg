@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS entity_relations;
 DROP TABLE IF EXISTS entity_system_runs;
 DROP TABLE IF EXISTS entity_wallet;
 DROP TABLE IF EXISTS entity_inventory;

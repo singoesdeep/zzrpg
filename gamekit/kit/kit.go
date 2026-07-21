@@ -16,6 +16,7 @@ import (
 	"github.com/singoesdeep/zzrpg/gamekit/entity"
 	"github.com/singoesdeep/zzrpg/gamekit/inventory"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
+	"github.com/singoesdeep/zzrpg/gamekit/relation"
 	"github.com/singoesdeep/zzrpg/gamekit/stats"
 	"github.com/singoesdeep/zzrpg/gamekit/system"
 	"github.com/singoesdeep/zzrpg/gamekit/template"
@@ -45,6 +46,7 @@ type Kit struct {
 	Progression *progression.Service
 	Inventory   *inventory.Service
 	Economy     *economy.Service
+	Relations   relation.Repo
 	World       *world.World
 	Composer    *template.Composer
 	Scheduler   *system.Scheduler
@@ -76,6 +78,7 @@ func New(d Deps) *Kit {
 	progSvc := progression.NewService(progStore, d.Curve, d.Hooks)
 	invSvc := inventory.NewService(invStore, d.Hooks)
 	econSvc := economy.NewService(walletStore, d.Hooks)
+	relations := relation.NewPgRepo(d.Store, "entity_relations")
 
 	w := world.New(entities)
 	w.Register(statsStore)
@@ -99,7 +102,7 @@ func New(d Deps) *Kit {
 	sch := system.NewScheduler(w, d.Bus, system.NewPgLastRun(d.Store, "entity_system_runs"))
 
 	return &Kit{
-		Entities: entities, Stats: statsSvc, Progression: progSvc, Inventory: invSvc, Economy: econSvc,
+		Entities: entities, Stats: statsSvc, Progression: progSvc, Inventory: invSvc, Economy: econSvc, Relations: relations,
 		World: w, Composer: composer, Scheduler: sch,
 		StatsStore: statsStore, ProgressionStore: progStore, InventoryStore: invStore, WalletStore: walletStore,
 	}

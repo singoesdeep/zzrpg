@@ -14,5 +14,9 @@
     "stats":      {"CON": 5},
     "production": {"rate_per_min": 10, "resource": "gold"},
     "resources":  {"amounts": {}}
+  },
+  "house": {
+    "production": {"rate_per_min": 3, "resource": "gold"},
+    "resources":  {"amounts": {}}
   }
 }
