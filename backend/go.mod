@@ -34,3 +34,7 @@ require (
 require github.com/singoesdeep/zzrpg/sdk v0.0.0
 
 replace github.com/singoesdeep/zzrpg/sdk => ../sdk
+
+require github.com/singoesdeep/zzrpg/gamekit v0.0.0
+
+replace github.com/singoesdeep/zzrpg/gamekit => ../gamekit

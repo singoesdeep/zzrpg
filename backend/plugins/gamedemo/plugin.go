@@ -1,0 +1,221 @@
+// Package gamedemo wires the gamekit framework into a runnable game to prove it
+// end to end: it composes entities from data-driven templates, runs a production
+// TickSystem with offline catch-up, levels entities up with a hook that grants a
+// trophy, and serves it over HTTP — all with NO combat and NO native stat
+// library (gamekit's pure-Go formula resolver).
+package gamedemo
+
+import (
+	"context"
+	"embed"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
+	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
+	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
+	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
+
+	"github.com/singoesdeep/zzrpg/gamekit/component"
+	"github.com/singoesdeep/zzrpg/gamekit/entity"
+	"github.com/singoesdeep/zzrpg/gamekit/inventory"
+	"github.com/singoesdeep/zzrpg/gamekit/progression"
+	"github.com/singoesdeep/zzrpg/gamekit/stats"
+	"github.com/singoesdeep/zzrpg/gamekit/system"
+	"github.com/singoesdeep/zzrpg/gamekit/template"
+	"github.com/singoesdeep/zzrpg/gamekit/world"
+
+	"github.com/singoesdeep/zzrpg/backend/platform/database"
+)
+
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+//go:embed content/templates.json
+var templatesJSON []byte
+
+//go:embed content/formulas.json
+var formulasJSON []byte
+
+// Resources is a demo wallet component; Production is a demo generator component.
+type Resources struct {
+	Amounts map[string]int64 `json:"amounts"`
+}
+type Production struct {
+	RatePerMin float64 `json:"rate_per_min"`
+	Resource   string  `json:"resource"`
+}
+
+// kinder adapts the entity repo to stats.EntityKinder.
+type kinder struct{ repo entity.Repo }
+
+func (k kinder) Kind(ctx context.Context, id int64) (string, error) {
+	e, err := k.repo.Get(ctx, id)
+	return e.Kind, err
+}
+
+// productionSystem accrues each producing entity's resource over elapsed time —
+// the generalised idle producer, as a gamekit TickSystem.
+type productionSystem struct {
+	prod component.Store[Production]
+	res  component.Store[Resources]
+}
+
+func (productionSystem) Name() string            { return "production" }
+func (productionSystem) Interval() time.Duration { return time.Minute }
+func (productionSystem) Query() []string         { return []string{"production"} }
+func (s productionSystem) Tick(ctx context.Context, id int64, _ *world.World, elapsed time.Duration) error {
+	p, ok, err := s.prod.Get(ctx, id)
+	if err != nil || !ok {
+		return err
+	}
+	r, _, _ := s.res.Get(ctx, id)
+	if r.Amounts == nil {
+		r.Amounts = map[string]int64{}
+	}
+	r.Amounts[p.Resource] += int64(p.RatePerMin * elapsed.Minutes())
+	return s.res.Set(ctx, id, r)
+}
+
+type Plugin struct {
+	plugin.Base
+	composer *template.Composer
+	stats    *stats.Service
+	prog     *progression.Service
+	inv      *inventory.Service
+	res      component.Store[Resources]
+	prog2    component.Store[progression.Progression]
+	inv2     component.Store[inventory.Inventory]
+	sch      *system.Scheduler
+	prodSys  productionSystem
+}
+
+func (*Plugin) Meta() plugin.Meta { return plugin.Meta{Name: "gamedemo", Requires: []string{"core"}} }
+
+func (*Plugin) Migrations() plugin.MigrationSource {
+	return plugin.MigrationSource{Module: "gamedemo", FS: fs.FS(migrationsFS), Dir: "migrations"}
+}
+
+func (p *Plugin) Init(ic plugin.InitContext) error {
+	reg := ic.Registry()
+	db := registry.MustResolve[*database.DB](reg, "db")
+	h := ic.Hooks()
+
+	entities := entity.NewPgRepo(db.Store)
+	statsStore := component.NewJSONStore[stats.Stats](db.Store, "stats", "entity_stats")
+	progStore := component.NewJSONStore[progression.Progression](db.Store, "progression", "entity_progression")
+	invStore := component.NewJSONStore[inventory.Inventory](db.Store, "inventory", "entity_inventory")
+	resStore := component.NewJSONStore[Resources](db.Store, "resources", "entity_resources")
+	prodStore := component.NewJSONStore[Production](db.Store, "production", "entity_production")
+
+	var byKind map[string]stats.Formulas
+	if err := json.Unmarshal(formulasJSON, &byKind); err != nil {
+		return err
+	}
+	p.stats = stats.NewService(statsStore, stats.NewFormulaResolver(byKind), kinder{entities}, h)
+	p.prog = progression.NewService(progStore, progression.Curve{Base: 50, Exp: 2}, h)
+	p.inv = inventory.NewService(invStore, h)
+	p.res, p.prog2, p.inv2 = resStore, progStore, invStore
+
+	w := world.New(entities)
+	for _, idx := range []component.ComponentIndex{statsStore, progStore, invStore, resStore, prodStore} {
+		w.Register(idx)
+	}
+
+	p.composer = template.NewComposer(entities)
+	p.composer.RegisterComponent("stats", func(ctx context.Context, id int64, raw json.RawMessage) error {
+		var b map[string]float64
+		if err := json.Unmarshal(raw, &b); err != nil {
+			return err
+		}
+		_, err := p.stats.SetBase(ctx, id, b)
+		return err
+	})
+	p.composer.RegisterComponent("progression", initComp(progStore))
+	p.composer.RegisterComponent("inventory", initComp(invStore))
+	p.composer.RegisterComponent("resources", initComp(resStore))
+	p.composer.RegisterComponent("production", initComp(prodStore))
+	var tpls map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(templatesJSON, &tpls); err != nil {
+		return err
+	}
+	p.composer.LoadTemplates(tpls)
+
+	p.prodSys = productionSystem{prod: prodStore, res: resStore}
+	p.sch = system.NewScheduler(w, ic.Bus(), system.NewPgLastRun(db.Store, "entity_system_runs"))
+	p.sch.AddTick(p.prodSys)
+
+	// Extension via hook: on each level gained, grant a trophy item — a plugin
+	// reaching across toolkits without the progression toolkit knowing.
+	hooks.AddAction(h, progression.HookLevelUp, 10, func(ctx context.Context, lu progression.LevelUp) error {
+		return p.inv.AddItem(ctx, lu.EntityID, inventory.Item{ItemID: fmt.Sprintf("trophy_lvl_%d", lu.NewLevel), Quantity: 1})
+	})
+
+	mux := ic.Mux()
+	mux.HandleFunc("POST /api/v1/demo/spawn/{kind}", p.spawn)
+	mux.HandleFunc("GET /api/v1/demo/entity/{id}", p.getEntity)
+	mux.HandleFunc("POST /api/v1/demo/grant-xp/{id}", p.grantXP)
+	mux.HandleFunc("POST /api/v1/demo/collect/{id}", p.collect)
+	return nil
+}
+
+func (p *Plugin) Start(rc plugin.RunContext) error {
+	p.sch.Run(rc.Context()) // starts tick + event dispatch (non-blocking)
+	return nil
+}
+
+// initComp returns a template initializer that unmarshals raw into T and stores it.
+func initComp[T any](store component.Store[T]) template.ComponentInitializer {
+	return func(ctx context.Context, id int64, raw json.RawMessage) error {
+		var v T
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		return store.Set(ctx, id, v)
+	}
+}
+
+func (p *Plugin) spawn(w http.ResponseWriter, r *http.Request) {
+	e, err := p.composer.Spawn(r.Context(), r.PathValue("kind"), 0)
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "SPAWN", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusCreated, e)
+}
+
+func (p *Plugin) getEntity(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	st, _, _ := p.stats.Get(r.Context(), id)
+	pr, _ := p.prog.Get(r.Context(), id)
+	inv, _ := p.inv.Get(r.Context(), id)
+	res, _, _ := p.res.Get(r.Context(), id)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res,
+	})
+}
+
+func (p *Plugin) grantXP(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	amount, _ := strconv.ParseInt(r.URL.Query().Get("amount"), 10, 64)
+	pr, gained, err := p.prog.GrantXP(r.Context(), id, amount)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "XP", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"progression": pr, "levels_gained": gained})
+}
+
+func (p *Plugin) collect(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err := p.sch.Catchup(r.Context(), p.prodSys, id); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "COLLECT", err.Error())
+		return
+	}
+	res, _, _ := p.res.Get(r.Context(), id)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"resources": res})
+}
