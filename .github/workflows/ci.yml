@@ -51,6 +51,15 @@ jobs:
           unformatted="$(gofmt -l .)"; [ -z "$unformatted" ] || { echo "not gofmt-clean:"; echo "$unformatted"; exit 1; }
           go test -race ./...
 
+      # ── gamekit module (game framework toolkits), depends on ../sdk ──
+      - name: gamekit build/vet/gofmt/test
+        working-directory: gamekit
+        run: |
+          go build ./...
+          go vet ./...
+          unformatted="$(gofmt -l .)"; [ -z "$unformatted" ] || { echo "not gofmt-clean:"; echo "$unformatted"; exit 1; }
+          go test -race ./...
+
       # ── Backend module (game + plugins), depends on ../sdk ──
       - name: backend build/vet/gofmt
         working-directory: backend
