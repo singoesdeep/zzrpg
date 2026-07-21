@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 )
 
@@ -82,7 +83,24 @@ func ListDefinitionsHandler(service QuestService) http.HandlerFunc {
 	}
 }
 
-func AcceptQuestHandler(service QuestService) http.HandlerFunc {
+// verifyOwner checks the {id} character belongs to the authenticated user,
+// returning false (having already written the response) if not. 404 (not 403)
+// on mismatch so other users' character IDs cannot be enumerated.
+func verifyOwner(w http.ResponseWriter, r *http.Request, chars CharacterGateway, charID int64) bool {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == 0 {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "User context not found")
+		return false
+	}
+	char, err := chars.GetByID(r.Context(), charID)
+	if err != nil || char.UserID != userID {
+		writeError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
+		return false
+	}
+	return true
+}
+
+func AcceptQuestHandler(service QuestService, chars CharacterGateway) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -99,6 +117,9 @@ func AcceptQuestHandler(service QuestService) http.HandlerFunc {
 		charID, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil || charID <= 0 {
 			writeError(w, http.StatusBadRequest, "INVALID_ID", "Invalid character ID")
+			return
+		}
+		if !verifyOwner(w, r, chars, charID) {
 			return
 		}
 
@@ -130,7 +151,7 @@ func AcceptQuestHandler(service QuestService) http.HandlerFunc {
 	}
 }
 
-func GetQuestLogHandler(service QuestService) http.HandlerFunc {
+func GetQuestLogHandler(service QuestService, chars CharacterGateway) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -147,6 +168,9 @@ func GetQuestLogHandler(service QuestService) http.HandlerFunc {
 		charID, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil || charID <= 0 {
 			writeError(w, http.StatusBadRequest, "INVALID_ID", "Invalid character ID")
+			return
+		}
+		if !verifyOwner(w, r, chars, charID) {
 			return
 		}
 

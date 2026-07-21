@@ -204,8 +204,28 @@ func (p *Plugin) charOf(ctx context.Context, entityID int64) (int64, error) {
 
 // --- HTTP (legacy idle contract preserved) ---
 
+// owned resolves the {id} path character and checks it belongs to the caller
+// (the authenticated user from the JWT), returning its id on success.
+func (p *Plugin) owned(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	userID := auth.UserIDFromContext(r.Context())
+	charID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || charID <= 0 || userID == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "INVALID_ID", "invalid character id")
+		return 0, false
+	}
+	char, err := p.chars.GetByID(r.Context(), charID)
+	if err != nil || char.UserID != userID {
+		httpx.WriteError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
+		return 0, false
+	}
+	return charID, true
+}
+
 func (p *Plugin) state(w http.ResponseWriter, r *http.Request) {
-	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	charID, ok := p.owned(w, r)
+	if !ok {
+		return
+	}
 	eid, err := p.mirror(r.Context(), charID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "IDLE", err.Error())
@@ -223,7 +243,10 @@ func (p *Plugin) activities(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) assignHandler(w http.ResponseWriter, r *http.Request) {
-	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	charID, ok := p.owned(w, r)
+	if !ok {
+		return
+	}
 	var body struct {
 		ActivityID string `json:"activity_id"`
 	}

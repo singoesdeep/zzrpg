@@ -85,8 +85,28 @@ func (p *Plugin) entityFor(ctx context.Context, charID int64) (int64, bool, erro
 	return 0, false, nil
 }
 
+// owned resolves the {id} path character and checks it belongs to the caller
+// (the authenticated user from the JWT), returning its id on success.
+func (p *Plugin) owned(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	userID := auth.UserIDFromContext(r.Context())
+	charID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || charID <= 0 || userID == 0 {
+		httpx.WriteError(w, http.StatusBadRequest, "INVALID_ID", "invalid character id")
+		return 0, false
+	}
+	char, err := p.chars.GetByID(r.Context(), charID)
+	if err != nil || char.UserID != userID {
+		httpx.WriteError(w, http.StatusNotFound, "CHARACTER_NOT_FOUND", "character not found")
+		return 0, false
+	}
+	return charID, true
+}
+
 func (p *Plugin) list(w http.ResponseWriter, r *http.Request) {
-	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	charID, ok := p.owned(w, r)
+	if !ok {
+		return
+	}
 	eid, ok, err := p.entityFor(r.Context(), charID)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "BUILDINGS", err.Error())
@@ -105,7 +125,10 @@ func (p *Plugin) list(w http.ResponseWriter, r *http.Request) {
 // entity mirror) and WRITE to it (via the real character wallet) without idlekit
 // changes.
 func (p *Plugin) upgrade(w http.ResponseWriter, r *http.Request) {
-	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	charID, ok := p.owned(w, r)
+	if !ok {
+		return
+	}
 	id := r.PathValue("building")
 	b, ok := p.catalog.Buildings[id]
 	if !ok {

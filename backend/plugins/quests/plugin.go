@@ -50,8 +50,8 @@ func (Plugin) Init(ic plugin.InitContext) error {
 
 	mux.Handle("POST /api/v1/admin/quests", authplugin.AdminOnly(jwt, quests.CreateDefinitionHandler(questService)))
 	mux.Handle("GET /api/v1/quests", auth.AuthMiddleware(jwt)(quests.ListDefinitionsHandler(questService)))
-	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(jwt)(quests.AcceptQuestHandler(questService)))
-	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(jwt)(quests.GetQuestLogHandler(questService)))
+	mux.Handle("POST /api/v1/characters/{id}/quests/accept", auth.AuthMiddleware(jwt)(quests.AcceptQuestHandler(questService, charService)))
+	mux.Handle("GET /api/v1/characters/{id}/quests", auth.AuthMiddleware(jwt)(quests.GetQuestLogHandler(questService, charService)))
 	mux.Handle("POST /api/v1/admin/quests/progress", authplugin.AdminOnly(jwt, quests.UpdateQuestProgressHandler(questService)))
 
 	return nil

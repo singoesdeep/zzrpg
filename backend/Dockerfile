@@ -52,4 +52,6 @@ ENV ZZSTAT_LIB_PATH=/app/libzzstat_ffi.so \
 USER app
 EXPOSE 8080
 # Provide DATABASE_URL, JWT_SECRET, ALLOWED_ORIGINS, ENV=production at runtime.
+# ADMIN_BYPASS_KEY is optional — set it (>=20 chars) to enable the Admin
+# Dashboard's data endpoints; unset leaves them disabled.
 ENTRYPOINT ["/app/zzrpg"]
