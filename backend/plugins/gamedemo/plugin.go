@@ -88,8 +88,8 @@ type Plugin struct {
 	prog     *progression.Service
 	inv      *inventory.Service
 	res      component.Store[Resources]
-	prog2    component.Store[progression.Progression]
-	inv2     component.Store[inventory.Inventory]
+	health   component.Store[Health]
+	combat   *Combat
 	sch      *system.Scheduler
 	prodSys  productionSystem
 }
@@ -111,6 +111,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	invStore := component.NewJSONStore[inventory.Inventory](db.Store, "inventory", "entity_inventory")
 	resStore := component.NewJSONStore[Resources](db.Store, "resources", "entity_resources")
 	prodStore := component.NewJSONStore[Production](db.Store, "production", "entity_production")
+	healthStore := component.NewJSONStore[Health](db.Store, "health", "entity_health")
 
 	var byKind map[string]stats.Formulas
 	if err := json.Unmarshal(formulasJSON, &byKind); err != nil {
@@ -119,10 +120,11 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.stats = stats.NewService(statsStore, stats.NewFormulaResolver(byKind), kinder{entities}, h)
 	p.prog = progression.NewService(progStore, progression.Curve{Base: 50, Exp: 2}, h)
 	p.inv = inventory.NewService(invStore, h)
-	p.res, p.prog2, p.inv2 = resStore, progStore, invStore
+	p.res, p.health = resStore, healthStore
+	p.combat = NewCombat(p.stats, healthStore, h)
 
 	w := world.New(entities)
-	for _, idx := range []component.ComponentIndex{statsStore, progStore, invStore, resStore, prodStore} {
+	for _, idx := range []component.ComponentIndex{statsStore, progStore, invStore, resStore, prodStore, healthStore} {
 		w.Register(idx)
 	}
 
@@ -139,6 +141,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.composer.RegisterComponent("inventory", initComp(invStore))
 	p.composer.RegisterComponent("resources", initComp(resStore))
 	p.composer.RegisterComponent("production", initComp(prodStore))
+	p.composer.RegisterComponent("health", initComp(healthStore))
 	var tpls map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(templatesJSON, &tpls); err != nil {
 		return err
@@ -149,10 +152,21 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.sch = system.NewScheduler(w, ic.Bus(), system.NewPgLastRun(db.Store, "entity_system_runs"))
 	p.sch.AddTick(p.prodSys)
 
-	// Extension via hook: on each level gained, grant a trophy item — a plugin
-	// reaching across toolkits without the progression toolkit knowing.
+	// Extension via hooks — plugins reaching across toolkits/systems that don't
+	// know about each other, the core of the framework's extensibility:
+	//   level up  → grant a trophy item  (progression → inventory)
+	//   kill      → grant xp to the killer (combat → progression → …trophy)
+	//   damage    → +5 weapon bonus       (a combat filter)
 	hooks.AddAction(h, progression.HookLevelUp, 10, func(ctx context.Context, lu progression.LevelUp) error {
 		return p.inv.AddItem(ctx, lu.EntityID, inventory.Item{ItemID: fmt.Sprintf("trophy_lvl_%d", lu.NewLevel), Quantity: 1})
+	})
+	hooks.AddAction(h, HookKill, 10, func(ctx context.Context, k Kill) error {
+		_, _, err := p.prog.GrantXP(ctx, k.AttackerID, 100) // xp per kill (may cascade a level-up + trophy)
+		return err
+	})
+	hooks.AddFilter(h, HookDamage, 10, func(_ context.Context, d Damage) Damage {
+		d.Amount += 5 // a "sharp weapon" plugin
+		return d
 	})
 
 	mux := ic.Mux()
@@ -160,6 +174,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	mux.HandleFunc("GET /api/v1/demo/entity/{id}", p.getEntity)
 	mux.HandleFunc("POST /api/v1/demo/grant-xp/{id}", p.grantXP)
 	mux.HandleFunc("POST /api/v1/demo/collect/{id}", p.collect)
+	mux.HandleFunc("POST /api/v1/demo/attack/{attacker}/{defender}", p.attack)
 	return nil
 }
 
@@ -194,9 +209,21 @@ func (p *Plugin) getEntity(w http.ResponseWriter, r *http.Request) {
 	pr, _ := p.prog.Get(r.Context(), id)
 	inv, _ := p.inv.Get(r.Context(), id)
 	res, _, _ := p.res.Get(r.Context(), id)
+	hp, _, _ := p.health.Get(r.Context(), id)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res,
+		"id": id, "stats": st, "progression": pr, "inventory": inv, "resources": res, "health": hp,
 	})
+}
+
+func (p *Plugin) attack(w http.ResponseWriter, r *http.Request) {
+	atk, _ := strconv.ParseInt(r.PathValue("attacker"), 10, 64)
+	def, _ := strconv.ParseInt(r.PathValue("defender"), 10, 64)
+	res, err := p.combat.Attack(r.Context(), atk, def)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "ATTACK", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, res)
 }
 
 func (p *Plugin) grantXP(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,6 @@
 {
   "": {
-    "primary":   { "HP": [{"source": "CON", "factor": 15}], "ATTACK": [{"source": "STR", "factor": 2}] },
+    "primary":   { "HP": [{"source": "CON", "factor": 15}], "ATTACK": [{"source": "STR", "factor": 2}], "DEFENSE": [{"source": "CON", "factor": 1}] },
     "secondary": { "ATTACK": [{"source": "DEX", "factor": 0.5}] }
   }
 }
