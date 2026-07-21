@@ -123,5 +123,15 @@ rebuild) when consumers are few and the legacy shape itself is the problem.
   the weighted-roll math and RNG; `game/loot` is a thin adapter (types, DB/cache
   persistence, admin CRUD, its own `HookRoll` for back-compat) — combat,
   killreward, character events, and existing tests are untouched and still pass.
-- **Next**: quests, combat — pick delete-and-rebuild or engine-only per the fan-in
-  test above.
+- **quests → gamekit/quest: SWAPPED (engine-only, pure-function variant).**
+  `gamekit/quest.Advance(steps, currentStep, progress, actionType, target,
+  amount)` is the extracted mechanism — a PURE function (no I/O, no hooks
+  needed inside it) that decides whether a progress event matches the current
+  step and whether the step/quest completed. `game/quests` still owns
+  everything Advance doesn't: DB persistence, the level-gate on accept, reward
+  application (gold/exp/items), and its own `HookAccept`/`HookProgress`. Existing
+  quest tests pass unmodified. This is the leanest version of the pattern: when
+  the mechanism has no side effects, extract it as a pure function rather than a
+  stateful Engine/Roller.
+- **Next**: combat — pick delete-and-rebuild or engine-only per the fan-in test
+  above; likely engine-only given creature/character coupling.

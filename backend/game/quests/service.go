@@ -5,6 +5,7 @@ import (
 
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/game/inventory"
+	gquest "github.com/singoesdeep/zzrpg/gamekit/quest"
 	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
 	"github.com/singoesdeep/zzrpg/sdk/engine/hooks"
 )
@@ -145,70 +146,58 @@ func (s *questService) UpdateQuestProgress(ctx context.Context, charID int32, ac
 			continue
 		}
 
-		currIdx := cq.CurrentStepIndex
-		if currIdx < 0 || int(currIdx) >= len(qd.Steps) {
+		// The step-matching/progress mechanism is gamekit's pure Advance
+		// function; this service owns everything Advance doesn't: persistence,
+		// rewards, and events.
+		newProgress, newStep, _, questCompleted, matched := gquest.Advance(
+			toSteps(qd.Steps), cq.CurrentStepIndex, cq.Progress, actionType, target, amount)
+		if !matched {
 			continue
 		}
+		cq.Progress = newProgress
+		cq.CurrentStepIndex = newStep
 
-		step := qd.Steps[currIdx]
-		if step.Type == actionType && step.Target == target {
-			// Update step progress
-			currentProgress := cq.Progress[currIdx]
-			if currentProgress >= step.Count {
-				continue
+		if questCompleted {
+			// Quest is fully completed!
+			if err := s.repo.CompleteQuest(ctx, charID, cq.QuestID); err != nil {
+				return err
 			}
 
-			newProgress := currentProgress + amount
-			if newProgress > step.Count {
-				newProgress = step.Count
+			// Award Rewards!
+			rewards := qd.Rewards
+			// Add EXP and Gold
+			_, _, _ = s.charService.AddRewards(ctx, int64(charID), rewards.Gold, rewards.Experience)
+
+			// Add Reward Items to inventory
+			for _, rewardItem := range rewards.Items {
+				invItem := &inventory.InventoryItem{
+					CharacterID:      charID,
+					ItemDefinitionID: rewardItem.ItemDefinitionID,
+					Quantity:         rewardItem.Quantity,
+					Durability:       100,
+					CustomModifiers:  nil,
+				}
+				_ = s.inventorySvc.AddItem(ctx, invItem)
 			}
 
-			cq.Progress[currIdx] = newProgress
-
-			// Check step completion
-			stepCompleted := newProgress >= step.Count
-			isLastStep := int(currIdx) == len(qd.Steps)-1
-
-			if stepCompleted && isLastStep {
-				// Quest is fully completed!
-				if err := s.repo.CompleteQuest(ctx, charID, cq.QuestID); err != nil {
-					return err
-				}
-
-				// Award Rewards!
-				rewards := qd.Rewards
-				// Add EXP and Gold
-				_, _, _ = s.charService.AddRewards(ctx, int64(charID), rewards.Gold, rewards.Experience)
-
-				// Add Reward Items to inventory
-				for _, rewardItem := range rewards.Items {
-					invItem := &inventory.InventoryItem{
-						CharacterID:      charID,
-						ItemDefinitionID: rewardItem.ItemDefinitionID,
-						Quantity:         rewardItem.Quantity,
-						Durability:       100,
-						CustomModifiers:  nil,
-					}
-					_ = s.inventorySvc.AddItem(ctx, invItem)
-				}
-
-				s.publish(ctx, QuestCompleted{CharacterID: charID, QuestID: cq.QuestID})
-			} else if stepCompleted {
-				// Move to next step
-				cq.CurrentStepIndex++
-				if err := s.repo.UpdateProgress(ctx, charID, cq.QuestID, cq.CurrentStepIndex, cq.Progress); err != nil {
-					return err
-				}
-				s.publish(ctx, QuestProgressed{CharacterID: charID, QuestID: cq.QuestID, Step: cq.CurrentStepIndex})
-			} else {
-				// Just save progress
-				if err := s.repo.UpdateProgress(ctx, charID, cq.QuestID, cq.CurrentStepIndex, cq.Progress); err != nil {
-					return err
-				}
-				s.publish(ctx, QuestProgressed{CharacterID: charID, QuestID: cq.QuestID, Step: cq.CurrentStepIndex})
+			s.publish(ctx, QuestCompleted{CharacterID: charID, QuestID: cq.QuestID})
+		} else {
+			// Save progress (whether or not a non-final step just completed).
+			if err := s.repo.UpdateProgress(ctx, charID, cq.QuestID, cq.CurrentStepIndex, cq.Progress); err != nil {
+				return err
 			}
+			s.publish(ctx, QuestProgressed{CharacterID: charID, QuestID: cq.QuestID, Step: cq.CurrentStepIndex})
 		}
 	}
 
 	return nil
+}
+
+// toSteps adapts this package's QuestStep to gamekit/quest's genre-agnostic Step.
+func toSteps(steps []QuestStep) []gquest.Step {
+	out := make([]gquest.Step, len(steps))
+	for i, s := range steps {
+		out[i] = gquest.Step{Type: s.Type, Target: s.Target, Count: s.Count}
+	}
+	return out
 }
