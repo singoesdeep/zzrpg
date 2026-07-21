@@ -1,4 +1,4 @@
-<!-- sha: a21dc6354edb2813d59c97771f34179327ffe190 -->
+<!-- sha: c2efcc086822b24518cb81b047402965170b6c17 -->
 # 🎛️ Admin Dashboard & APIs
 
 The `core` plugin serves a single-page Admin Dashboard at `GET /admin`
