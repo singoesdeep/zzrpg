@@ -21,8 +21,8 @@ import (
 	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 
 	"github.com/singoesdeep/zzrpg/gamekit/component"
-	"github.com/singoesdeep/zzrpg/gamekit/entity"
 	"github.com/singoesdeep/zzrpg/gamekit/inventory"
+	"github.com/singoesdeep/zzrpg/gamekit/kit"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
 	"github.com/singoesdeep/zzrpg/gamekit/stats"
 	"github.com/singoesdeep/zzrpg/gamekit/system"
@@ -48,14 +48,6 @@ type Resources struct {
 type Production struct {
 	RatePerMin float64 `json:"rate_per_min"`
 	Resource   string  `json:"resource"`
-}
-
-// kinder adapts the entity repo to stats.EntityKinder.
-type kinder struct{ repo entity.Repo }
-
-func (k kinder) Kind(ctx context.Context, id int64) (string, error) {
-	e, err := k.repo.Get(ctx, id)
-	return e.Kind, err
 }
 
 // productionSystem accrues each producing entity's resource over elapsed time —
@@ -105,51 +97,39 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	db := registry.MustResolve[*database.DB](reg, "db")
 	h := ic.Hooks()
 
-	entities := entity.NewPgRepo(db.Store)
-	statsStore := component.NewJSONStore[stats.Stats](db.Store, "stats", "entity_stats")
-	progStore := component.NewJSONStore[progression.Progression](db.Store, "progression", "entity_progression")
-	invStore := component.NewJSONStore[inventory.Inventory](db.Store, "inventory", "entity_inventory")
-	resStore := component.NewJSONStore[Resources](db.Store, "resources", "entity_resources")
-	prodStore := component.NewJSONStore[Production](db.Store, "production", "entity_production")
-	healthStore := component.NewJSONStore[Health](db.Store, "health", "entity_health")
-
 	var byKind map[string]stats.Formulas
 	if err := json.Unmarshal(formulasJSON, &byKind); err != nil {
 		return err
 	}
-	p.stats = stats.NewService(statsStore, stats.NewFormulaResolver(byKind), kinder{entities}, h)
-	p.prog = progression.NewService(progStore, progression.Curve{Base: 50, Exp: 2}, h)
-	p.inv = inventory.NewService(invStore, h)
+	// One call assembles the framework core: entity repo, stats/progression/
+	// inventory components + services, world, composer (with the built-in
+	// initializers), and the scheduler.
+	k := kit.New(kit.Deps{Store: db.Store, Hooks: h, Bus: ic.Bus(), Formulas: byKind, Curve: progression.Curve{Base: 50, Exp: 2}})
+	p.stats, p.prog, p.inv = k.Stats, k.Progression, k.Inventory
+	p.composer, p.sch = k.Composer, k.Scheduler
+
+	// This game's OWN components on top of the built-ins.
+	resStore := component.NewJSONStore[Resources](db.Store, "resources", "entity_resources")
+	prodStore := component.NewJSONStore[Production](db.Store, "production", "entity_production")
+	healthStore := component.NewJSONStore[Health](db.Store, "health", "entity_health")
 	p.res, p.health = resStore, healthStore
-	p.combat = NewCombat(p.stats, healthStore, h)
-
-	w := world.New(entities)
-	for _, idx := range []component.ComponentIndex{statsStore, progStore, invStore, resStore, prodStore, healthStore} {
-		w.Register(idx)
+	p.combat = NewCombat(k.Stats, healthStore, h)
+	for _, idx := range []component.ComponentIndex{resStore, prodStore, healthStore} {
+		k.World.Register(idx)
 	}
+	k.Composer.RegisterComponent("resources", template.Init(resStore))
+	k.Composer.RegisterComponent("production", template.Init(prodStore))
+	k.Composer.RegisterComponent("health", template.Init(healthStore))
 
-	p.composer = template.NewComposer(entities)
-	p.composer.RegisterComponent("stats", func(ctx context.Context, id int64, raw json.RawMessage) error {
-		var b map[string]float64
-		if err := json.Unmarshal(raw, &b); err != nil {
-			return err
-		}
-		_, err := p.stats.SetBase(ctx, id, b)
-		return err
-	})
-	p.composer.RegisterComponent("progression", initComp(progStore))
-	p.composer.RegisterComponent("inventory", initComp(invStore))
-	p.composer.RegisterComponent("resources", initComp(resStore))
-	p.composer.RegisterComponent("production", initComp(prodStore))
-	p.composer.RegisterComponent("health", initComp(healthStore))
 	var tpls map[string]map[string]json.RawMessage
 	if err := json.Unmarshal(templatesJSON, &tpls); err != nil {
 		return err
 	}
-	p.composer.LoadTemplates(tpls)
+	k.Composer.LoadTemplates(tpls)
 
+	// This game's OWN systems: a production TickSystem (combat is the Combat
+	// resolver above, driven by the attack endpoint).
 	p.prodSys = productionSystem{prod: prodStore, res: resStore}
-	p.sch = system.NewScheduler(w, ic.Bus(), system.NewPgLastRun(db.Store, "entity_system_runs"))
 	p.sch.AddTick(p.prodSys)
 
 	// Extension via hooks — plugins reaching across toolkits/systems that don't
@@ -181,17 +161,6 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 func (p *Plugin) Start(rc plugin.RunContext) error {
 	p.sch.Run(rc.Context()) // starts tick + event dispatch (non-blocking)
 	return nil
-}
-
-// initComp returns a template initializer that unmarshals raw into T and stores it.
-func initComp[T any](store component.Store[T]) template.ComponentInitializer {
-	return func(ctx context.Context, id int64, raw json.RawMessage) error {
-		var v T
-		if err := json.Unmarshal(raw, &v); err != nil {
-			return err
-		}
-		return store.Set(ctx, id, v)
-	}
 }
 
 func (p *Plugin) spawn(w http.ResponseWriter, r *http.Request) {

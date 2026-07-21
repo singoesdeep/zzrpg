@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/singoesdeep/zzrpg/gamekit/component"
 	"github.com/singoesdeep/zzrpg/gamekit/entity"
 )
 
@@ -23,6 +24,19 @@ type Template struct {
 // ComponentInitializer applies a component's default data to a freshly created
 // entity. Games register one per component name, wiring it to a toolkit service.
 type ComponentInitializer func(ctx context.Context, entityID int64, raw json.RawMessage) error
+
+// Init is the common initializer: unmarshal the template's raw default into T
+// and store it. Use it for a data-only component; a component that needs a
+// service (e.g. stats, which recomputes derived values) wires a custom one.
+func Init[T any](store component.Store[T]) ComponentInitializer {
+	return func(ctx context.Context, id int64, raw json.RawMessage) error {
+		var v T
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return err
+		}
+		return store.Set(ctx, id, v)
+	}
+}
 
 // Composer creates entities from templates, attaching their components.
 type Composer struct {
