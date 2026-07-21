@@ -63,6 +63,24 @@ func (k *Kernel) Bus() bus.EventBus { return k.bus }
 // Registry exposes the kernel's service registry.
 func (k *Kernel) Registry() *registry.Registry { return k.reg }
 
+// Harden wraps inner with the engine's standard HTTP middleware chain
+// (outermost first: recover from panics, assign a request id, log, security
+// headers, CORS, per-IP rate limit, request-body cap). Run applies it to the
+// router; it is exported so the exact composed chain can be exercised in
+// black-box tests (e.g. that a WebSocket upgrade still works through it).
+func (k *Kernel) Harden(inner http.Handler) http.Handler {
+	h := inner
+	h = httpx.MaxBodyBytes(k.cfg.MaxBodyBytes)(h)
+	h = httpx.RateLimit(k.cfg.RateLimitRPS, k.cfg.RateLimitBurst, k.log)(h)
+	h = httpx.CORS(k.cfg.AllowOrigin)(h)
+	h = httpx.SecureHeaders(h)
+	h = k.metrics.Middleware(h)
+	h = httpx.RequestLogger(k.log)(h)
+	h = httpx.RequestID(h)
+	h = httpx.Recover(k.log)(h)
+	return h
+}
+
 // Run resolves the plugin dependency graph, runs Init then Start in order,
 // serves HTTP until ctx is cancelled, then Stops plugins in reverse order and
 // shuts the server down gracefully.
@@ -125,21 +143,9 @@ func (k *Kernel) Run(ctx context.Context) error {
 		}
 	}
 
-	// Middleware chain, outermost first: recover from panics, assign a request
-	// id, log the request, set security headers, apply CORS, rate-limit per
-	// client IP, and cap the request body — then the router.
-	var handler http.Handler = k.mux
-	handler = httpx.MaxBodyBytes(k.cfg.MaxBodyBytes)(handler)
-	handler = httpx.RateLimit(k.cfg.RateLimitRPS, k.cfg.RateLimitBurst, k.log)(handler)
-	handler = httpx.CORS(k.cfg.AllowOrigin)(handler)
-	handler = httpx.SecureHeaders(handler)
-	handler = k.metrics.Middleware(handler)
-	handler = httpx.RequestLogger(k.log)(handler)
-	handler = httpx.RequestID(handler)
-	handler = httpx.Recover(k.log)(handler)
 	srv := &http.Server{
 		Addr:         ":" + k.cfg.Port,
-		Handler:      handler,
+		Handler:      k.Harden(k.mux),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
