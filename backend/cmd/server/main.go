@@ -15,6 +15,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/plugins/character"
 	"github.com/singoesdeep/zzrpg/backend/plugins/combat"
 	"github.com/singoesdeep/zzrpg/backend/plugins/core"
+	"github.com/singoesdeep/zzrpg/backend/plugins/crafting"
 	"github.com/singoesdeep/zzrpg/backend/plugins/idle"
 	"github.com/singoesdeep/zzrpg/backend/plugins/inventory"
 	"github.com/singoesdeep/zzrpg/backend/plugins/items"
@@ -45,6 +46,7 @@ func main() {
 		&quests.Plugin{},
 		&combat.Plugin{},
 		&idle.Plugin{},
+		&crafting.Plugin{},
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

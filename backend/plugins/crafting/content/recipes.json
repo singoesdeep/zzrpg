@@ -1,0 +1,17 @@
+{
+  "plank": {
+    "id": "plank", "name": "Plank",
+    "cost": { "wood": 10 }, "gold_cost": 0,
+    "output": { "item_id": "crafted_plank", "name": "Plank", "slot_type": "NONE", "quantity": 1 }
+  },
+  "iron_ingot": {
+    "id": "iron_ingot", "name": "Iron Ingot",
+    "cost": { "metal": 8 }, "gold_cost": 0,
+    "output": { "item_id": "crafted_iron_ingot", "name": "Iron Ingot", "slot_type": "NONE", "quantity": 1 }
+  },
+  "reinforced_shield": {
+    "id": "reinforced_shield", "name": "Reinforced Shield",
+    "cost": { "wood": 20, "metal": 10 }, "gold_cost": 50,
+    "output": { "item_id": "crafted_reinforced_shield", "name": "Reinforced Shield", "slot_type": "SHIELD", "quantity": 1 }
+  }
+}

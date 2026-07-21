@@ -72,6 +72,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.tickInterval = ic.Config().IdleTickInterval
 	p.online = make(map[int64]struct{})
 
+	wallet := idle.NewWalletRepo(db.Store)
 	p.svc = idle.NewService(idle.Deps{
 		Chars:       p.chars,
 		Loot:        lootSvc,
@@ -79,9 +80,14 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		Assignments: idle.NewAssignmentRepo(db.Store),
 		Lifeskills:  idle.NewLifeskillRepo(db.Store),
 		Buildings:   idle.NewBuildingRepo(db.Store),
-		Wallet:      idle.NewWalletRepo(db.Store),
+		Wallet:      wallet,
 	})
 	if err := registry.Provide(reg, "idle", p.svc); err != nil {
+		return err
+	}
+	// Expose the resource wallet so other plugins (e.g. crafting) can spend
+	// idle-generated resources.
+	if err := registry.Provide(reg, "resourceWallet", wallet); err != nil {
 		return err
 	}
 
