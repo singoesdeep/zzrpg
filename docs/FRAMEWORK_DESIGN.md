@@ -1,10 +1,12 @@
 # Game Framework Design (gamekit)
 
-> **Status:** design proposal, not yet implemented. This document captures the
-> agreed direction for turning the codebase into a **batteries-included game
-> framework** whose toolkits are general enough to build an RPG, an RTS, or a
-> city-builder — by using some toolkits, ignoring others, and swapping engines
-> via plugins and hooks.
+> **Status:** implemented (v1). The `gamekit` module ships the toolkits below,
+> assembled by `kit.New`; see [`gamekit/README.md`](../gamekit/README.md) for the
+> package reference and the `backend/plugins/gamedemo` plugin for a worked game
+> that exercises every toolkit live. This document captures the agreed direction:
+> a **batteries-included game framework** whose toolkits are general enough to
+> build an RPG, an RTS, or a city-builder — by using some toolkits, ignoring
+> others, and swapping engines via plugins and hooks.
 
 ## 1. Vision
 
