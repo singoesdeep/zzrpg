@@ -44,11 +44,12 @@ services, and routes/events — without touching this module. See
 
 ## Monorepo note
 
-In this repository the game module (`../backend`) references the SDK with a
-local `replace github.com/singoesdeep/zzrpg/sdk => ../sdk`, so both build
-together without publishing. Two games already run on it: the RPG
-(`backend/cmd/server`) and a standalone city-builder (`backend/cmd/citygame`)
-that registers no RPG plugins and needs no native library.
+In this repository, `../gamekit` (the game framework built on this SDK) and
+`../backend` (this repo's own RPG, built on gamekit) both reference this module
+with a local `replace github.com/singoesdeep/zzrpg/sdk => ../sdk`, so all three
+build together without publishing. See [../README.md](../README.md) for the
+three-module layout, and [../gamekit/README.md](../gamekit/README.md) for the
+framework layer above this one.
 
 ```bash
 cd sdk && go test ./...   # the SDK builds and tests standalone

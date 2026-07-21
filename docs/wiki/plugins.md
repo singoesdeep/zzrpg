@@ -1,4 +1,4 @@
-<!-- sha: de084fe61aa461c49fdcc8874d6292608793e0ce -->
+<!-- sha: 1ec913a58ecaea4aad8d0f10d528442c4922f119 -->
 # 🧩 Plugin Subsystem
 
 Every feature is a plugin implementing `plugin.Plugin`
@@ -9,7 +9,7 @@ Composition adapters live in `backend/plugins/`; each wires a game domain
 ## What a plugin can own (without touching engine/platform)
 - **Schema** — implement `plugin.Migrator` → `MigrationSource{Module,FS,Dir}`;
   migrations are namespaced per module in `schema_migrations`. Example:
-  `backend/plugins/idle/migrations`, `backend/plugins/city/migrations`.
+  `backend/plugins/idlekit/migrations`, `backend/plugins/buildings/migrations`.
 - **Content types** — `registry.DefineContent[T]` + `LoadContent` + `Content[T]`.
 - **Routes** — `ic.Mux()` (gated on activation); **WS** —
   `socket.MessageRouter.HandleOwned(type, owner, h)`.

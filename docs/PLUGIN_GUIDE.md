@@ -1,11 +1,20 @@
-# Plugin Guide — building a game
+# Plugin Guide — the sdk substrate a plugin runs on
 
-A game on this engine is a set of plugins. A plugin can ship its **own schema,
-content types, services, HTTP/WS routes, events, and idle mechanics** without
-touching the engine or platform. This guide walks through it using the city
-builder ([`backend/plugins/city`](../backend/plugins/city)) — a complete game
-assembled from just `core` + `city`, with no characters, combat, or Rust stat
-library.
+> **Building a game?** This document is about the low-level plugin mechanics —
+> how anything (infrastructure or game logic) hooks into the kernel. If you're
+> building actual game systems, start with
+> [gamekit/README.md](../gamekit/README.md) and
+> [GETTING_STARTED.md](GETTING_STARTED.md) instead — gamekit gives you entities,
+> stats, economy, and the rest of the toolkits, all pre-wired on top of the
+> mechanics below. `core`, `auth`, and `items` are examples of plugins built
+> directly on this layer, because they're infrastructure, not game mechanics;
+> `idlekit`, `buildings`, and `backend/plugins/gamedemo` are examples built on
+> gamekit instead.
+
+A plugin can ship its **own schema, content types, services, HTTP/WS routes,
+events, and idle mechanics** without touching the engine or platform. This guide
+walks through the mechanics using `backend/plugins/gamedemo` — a complete game
+built on gamekit, with no characters, combat, or Rust stat library.
 
 ## 1. The skeleton
 
@@ -13,7 +22,7 @@ library.
 type Plugin struct{ plugin.Base }  // Base gives no-op Start/Stop
 
 func (*Plugin) Meta() plugin.Meta {
-    return plugin.Meta{Name: "city", Requires: []string{"core"}}
+    return plugin.Meta{Name: "gamedemo", Requires: []string{"core"}}
 }
 
 func (p *Plugin) Init(ic plugin.InitContext) error {
@@ -28,7 +37,7 @@ Register it in a `main`:
 
 ```go
 k := kernel.New(cfg, log)
-k.Register(core.NewPlugin(), &city.Plugin{})
+k.Register(core.NewPlugin(), &gamedemo.Plugin{})
 k.Run(ctx)
 ```
 
@@ -47,51 +56,41 @@ no edits to `platform/database`.
 var migrationsFS embed.FS
 
 func (*Plugin) Migrations() plugin.MigrationSource {
-    return plugin.MigrationSource{Module: "city", FS: fs.FS(migrationsFS), Dir: "migrations"}
+    return plugin.MigrationSource{Module: "gamedemo", FS: fs.FS(migrationsFS), Dir: "migrations"}
 }
 ```
 
-`migrations/000001_create_city.up.sql` creates the game's tables. On boot you'll
-see `Applying migration module=city version=1`.
+If you're on gamekit, `kit.MigrationSource()` ships the standard schema
+(entities + built-in components) for you — your plugin's own migration only
+needs to add its own tables.
 
 ## 3. Define your own content type
 
 The engine has a generic content registry. Declare a type it knows nothing
-about, load your embedded JSON through it, and read it back type-safely.
+about, load your embedded JSON through it, and read it back type-safely. This is
+what `gamekit/template.Composer` and `backend/plugins/crafting`'s recipe pack
+are built on.
 
 ```go
 type BuildingDef struct { ID, Name, Resource string; BasePerMin, PerLevel float64; Cost map[string]int64 }
 
-registry.DefineContent[BuildingDef](reg, "city_building")
-reg.LoadContent("city_building", id, rawJSON)          // per entry
-def, ok := registry.Content[BuildingDef](reg, "city_building", "gold_mine")
+registry.DefineContent[BuildingDef](reg, "my_building")
+reg.LoadContent("my_building", id, rawJSON)          // per entry
+def, ok := registry.Content[BuildingDef](reg, "my_building", "gold_mine")
 ```
 
-Designers tune `content/buildings.json`; no code changes.
+Designers tune a JSON content pack; no code changes.
 
 ## 4. Reuse the idle accrual framework
 
-Implement `idle.Producer` for your mechanic. The city's buildings scale their
-output with their level:
-
-```go
-type buildingProducer struct{ def BuildingDef }
-func (buildingProducer) Unlocked(idle.State) bool { return true }
-func (p buildingProducer) Produce(elapsedMin float64, s idle.State, _ func() float64) idle.Output {
-    rate := p.def.BasePerMin + p.def.PerLevel*s.Get("level")
-    var o idle.Output; o.Add(p.def.Resource, int64(rate*elapsedMin)); return o
-}
-```
-
-Then, on "collect", clamp the elapsed window and run the producers:
-
-```go
-elapsedMin, ok := idle.Window(time.Since(lastTick).Seconds(), minSec, capSec)
-// run each built producer, merge Output, credit resources, advance the tick
-```
-
-The RPG uses the same contract for combat stages (scale on power), lifeskills
-(scale on skill level), and generators — and adds a periodic online tick.
+The raw mechanism is `sdk/engine/idle`: implement `idle.Producer` — elapsed
+minutes + state in, an opaque `Output` (ledger + drops) out — and drive it
+through `idle.Window` for the offline-catch-up clamp. **On gamekit, you don't
+touch this directly** — `gamekit/idle.Engine` + `TickSystem` already do the
+window/producer/apply wiring and route Output into economy/progression/
+inventory; see `backend/plugins/buildings` for a worked Producer plugin
+(registers on the shared registry, injects its own inputs via `HookState`) and
+`gamekit/README.md`'s `idle` row.
 
 ## 5. Expose services and routes
 
@@ -99,16 +98,16 @@ Provide your service (optionally with a type-safe key) and register routes on
 the plugin-scoped mux — they are automatically gated on the plugin's activation.
 
 ```go
-var ServiceKey = registry.NewKey[*Service]("city")
+var ServiceKey = registry.NewKey[*Service]("gamedemo")
 registry.ProvideKey(reg, ServiceKey, svc)
 
 mux := ic.Mux()
-mux.HandleFunc("POST /api/v1/city/{owner}/found", p.foundHandler)
-mux.HandleFunc("GET /api/v1/city/{owner}", p.stateHandler)
+mux.HandleFunc("POST /api/v1/demo/spawn/{kind}", p.spawn)
+mux.HandleFunc("GET /api/v1/demo/entity/{id}", p.getEntity)
 ```
 
 For WebSocket messages, resolve `*socket.MessageRouter` and use
-`HandleOwned(type, "city", handler)` so the type is gated on activation.
+`HandleOwned(type, "gamedemo", handler)` so the type is gated on activation.
 
 ## 6. React to events (optional)
 
@@ -121,13 +120,17 @@ ic.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx, ev) { /* … */ }
 
 ## What you did *not* touch
 
-Building the city game required **no changes** to `sdk/` (engine) or
-`backend/platform/`. It boots without the Rust stat library because it never
-registers the `stat` plugin. That is the whole point: the engine is a stable SDK,
-and games live entirely in plugins.
+Building `gamedemo` required **no changes** to `sdk/` (engine) or `gamekit/`
+(framework). It boots without the Rust stat library because it never registers
+the `stat` plugin and gamekit's stats toolkit uses a pure-Go resolver. That is
+the whole point: the engine and the framework are stable, versioned
+dependencies, and a game lives entirely in its own plugins.
 
 ## Reference
 
+- Building actual game systems → [gamekit/README.md](../gamekit/README.md),
+  [GETTING_STARTED.md](GETTING_STARTED.md)
+- Porting an existing game onto gamekit → [MIGRATION_TEMPLATE.md](MIGRATION_TEMPLATE.md)
 - Engine internals & extension points → [ARCHITECTURE.md](ARCHITECTURE.md)
 - The SDK module → [../sdk/README.md](../sdk/README.md)
 - Living, code-grounded wiki → [wiki/](wiki/)

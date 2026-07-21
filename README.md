@@ -1,42 +1,58 @@
 # zzrpg
 
-A **game-agnostic backend engine** for building idle / RPG / RTS games in Go,
-plus example games built on it. The engine is a reusable SDK; a game is nothing
-but a set of plugins registered with the kernel.
+A **batteries-included game framework** for building idle / RPG / RTS /
+city-builder games in Go — plus a complete RPG built on it. Three Go modules,
+each a stable layer the one above depends on:
 
-The repository is two Go modules:
+| Module | Path | What it is |
+|--------|------|------------|
+| **sdk** | [`sdk/`](sdk/) → `.../zzrpg/sdk` | The game-**agnostic** engine substrate: plugin lifecycle, DI registry, event bus, hooks, HTTP router, outbox. Zero game concepts. |
+| **gamekit** | [`gamekit/`](gamekit/) → `.../zzrpg/gamekit` | The batteries-included game **framework**: entity, component, world, stats, progression, inventory, economy, relation, system, template, idle, loot, quest, vitals — genre-neutral toolkits with hook seams, assembled by `kit.New`. **This is what you build a new game on.** |
+| **backend** | [`backend/`](backend/) → `.../zzrpg/backend` | This repo's own game: a full RPG (`cmd/server`) and a reference example (`cmd/gamedemo`) exercising every gamekit toolkit, both built on gamekit. |
 
-| Module | Path | Contents |
-|--------|------|----------|
-| **SDK** | [`sdk/`](sdk/) → `github.com/singoesdeep/zzrpg/sdk` | The reusable engine (`engine/`) + utilities (`pkg/`). Zero game concepts. |
-| **Game** | [`backend/`](backend/) → `github.com/singoesdeep/zzrpg/backend` | Game domains (`game/`), plugins (`plugins/`), infrastructure (`platform/`), content, and the runnable binaries. Depends on the SDK via a local `replace`. |
+## Building your own game
 
-Two games already run on the same engine:
+Start here, in order:
 
-- **`backend/cmd/server`** — a full RPG: auth, characters, combat (via an
-  embedded Rust stat engine), inventory, loot, quests, and a content-driven
-  idle system with offline + real-time online progression.
-- **`backend/cmd/citygame`** — a standalone idle city-builder assembled from
-  just two plugins (`core` + `city`). It registers no RPG plugins and needs no
-  Rust library — proof that unrelated games build on the engine plugin-only.
+1. [`gamekit/README.md`](gamekit/README.md) — the toolkit reference.
+2. [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — a from-scratch
+   walkthrough (spawn from a template, an idle system, extending via hooks).
+3. `backend/plugins/gamedemo` — the fuller worked example (stats, combat,
+   economy, a relation graph, offline+online accrual), runnable via
+   `cmd/gamedemo`.
+4. `backend/plugins/idlekit` + `backend/plugins/buildings` — the clearest
+   example of the framework/content split: idlekit owns the accrual mechanism,
+   buildings is an independent plugin that extends it (new activities, its own
+   inputs) with **zero changes to idlekit**.
+
+Porting an *existing* game onto gamekit? See
+[`docs/MIGRATION_TEMPLATE.md`](docs/MIGRATION_TEMPLATE.md) — this repo's own
+RPG was migrated subsystem by subsystem, and that document records the
+patterns (and when *not* to migrate something).
+
+## This repo's RPG
+
+`backend/cmd/server` — auth, characters, combat (via an embedded Rust stat
+engine, `zzstat`), inventory, crafting, and idle progression (activities +
+buildings), all on gamekit.
 
 ## Quickstart
 
 Prerequisites: Go 1.26+, PostgreSQL and Redis (see [`docker-compose.yml`](docker-compose.yml)),
-and — for the RPG only — the Rust [zzstat](https://github.com/singoesdeep/zzstat)
+and — for the RPG's combat only — the Rust [zzstat](https://github.com/singoesdeep/zzstat)
 FFI library.
 
 ```bash
 # infrastructure
 docker compose up -d          # postgres + redis
 
-# --- the RPG server (needs the zzstat .so) ---
+# --- this repo's RPG (needs the zzstat .so) ---
 cd backend
 ZZSTAT_LIB_PATH=/path/to/libzzstat_ffi.so go run ./cmd/server
 # → http://localhost:8080  (migrations run on boot)
 
-# --- the city-builder (no zzstat, no RPG plugins) ---
-PORT=8082 go run ./cmd/citygame
+# --- the gamekit reference example (no zzstat, no RPG-specific code) ---
+PORT=8082 go run ./cmd/gamedemo
 # → http://localhost:8082
 ```
 
@@ -44,38 +60,39 @@ Configuration is via environment variables — see [`backend/.env.example`](back
 In `ENV=production` the server requires a real `JWT_SECRET` (≥32 chars),
 `DATABASE_URL`, and an `ALLOWED_ORIGINS` allowlist.
 
-## What makes it an engine
+## Further reading
 
-The kernel drives a plugin lifecycle and owns only game-agnostic primitives —
-a DI registry, a typed event bus, a synchronous hook pipeline, an HTTP router
-with an activation gate, an outbox relay, and an offline-accrual framework. A
-plugin ships its own **database schema**, **content types**, **routes**, and
-**events** without touching the engine. See:
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — layers, lifecycle, and the
-  extension points.
-- [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) — build a game as plugins,
-  worked through the city example.
-- [sdk/README.md](sdk/README.md) — the SDK module.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the three layers, the sdk
+  plugin lifecycle, and the extension points.
+- [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) — the low-level sdk plugin
+  mechanics gamekit itself is built on (schema, content types, routes, events).
+- [docs/FRAMEWORK_DESIGN.md](docs/FRAMEWORK_DESIGN.md) — the design rationale
+  behind gamekit.
+- [sdk/README.md](sdk/README.md) — the sdk module on its own.
 - [docs/wiki/](docs/wiki/) — the code-grounded living wiki.
 
 ## Testing
 
 ```bash
 cd sdk     && go test ./...                              # engine + utils (standalone)
-cd backend && ZZSTAT_LIB_PATH=/path/to/.so go test ./... # game + plugins
+cd gamekit && go test ./...                              # framework (standalone)
+cd backend && ZZSTAT_LIB_PATH=/path/to/.so go test ./... # this RPG + plugins
 ```
 
 ## Layout
 
 ```
-sdk/                         reusable engine SDK (own Go module)
+sdk/                         engine substrate (own Go module)
   engine/  kernel · plugin · registry · bus · hooks · admin · idle · outbox · store · eventlog · eventstream
   pkg/     config · httpx · logger · metrics · cache
-backend/                     the games (own Go module, requires ../sdk)
-  game/       RPG domains (character, combat, loot, quests, inventory, idle, …)
+gamekit/                     game framework (own Go module, requires ../sdk)
+  entity · component · world · stats · progression · inventory · economy ·
+  relation · system · template · idle · loot · quest · vitals · kit
+backend/                     this repo's RPG (own Go module, requires ../sdk and ../gamekit)
+  game/       RPG-specific domains (character, combat, creature, session, …)
   platform/   infrastructure: socket · session · statclient · database
-  plugins/    composition adapters: core · stat · auth · character · combat · … · idle · city
+  plugins/    composition adapters: core · stat · auth · character · combat ·
+              idlekit · buildings · crafting · gamedemo · …
   content/    data-driven content (JSON)
-  cmd/        server (RPG) · citygame (city-builder)
+  cmd/        server (this RPG) · gamedemo (the gamekit reference example)
 ```

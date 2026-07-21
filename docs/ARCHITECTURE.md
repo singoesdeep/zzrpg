@@ -1,27 +1,38 @@
 # Architecture
 
-zzrpg is a plugin-first engine. The kernel contains **zero game concepts**; every
-feature — even "core infrastructure" — is a plugin. This document describes the
-layers, the plugin lifecycle, and the extension points a plugin uses.
-
-## Layers
-
-Dependencies point downward only; nothing lower imports anything higher.
+zzrpg is three layers, each a separate Go module, dependencies pointing strictly
+downward:
 
 ```
-plugins/   composition adapters — wire domains + platform into the kernel     (backend module)
+backend/   THIS game: plugins (composition), game/ (RPG-specific domains),      (backend module)
+           platform/ (socket, session, statclient, database), cmd/ (binaries)
    │
-game/      the specific game's domains (character, combat, idle, city, …)     (backend module)
+gamekit/   the batteries-included GAME framework: entity, component, world,     (gamekit module)
+           stats, progression, inventory, economy, relation, system, template,
+           idle, loot, quest, vitals, kit — genre-neutral toolkits with hook
+           seams. See gamekit/README.md.
    │
-platform/  domain-free infrastructure — socket, session, statclient, database (backend module)
-   │
-engine/    the game-agnostic framework — kernel, plugin, registry, bus, …     (SDK module)
-pkg/       utilities — config, httpx, logger, metrics, cache                  (SDK module)
+sdk/       the game-AGNOSTIC engine substrate: kernel, plugin, registry, bus,   (sdk module)
+           hooks, admin, outbox, store. Contains zero game concepts — it has
+           no idea what an "entity" or "hit points" is.
 ```
 
-`engine/` + `pkg/` are a separate Go module (`.../zzrpg/sdk`) so a game can
-import the engine as a dependency. `platform/` stays in the game module because
-`statclient` couples to game content; it depends on the SDK like any consumer.
+The kernel (sdk) contains **zero game concepts**; it drives a plugin lifecycle
+and owns only infrastructure primitives (DI registry, event bus, hook pipeline,
+HTTP router, outbox). **gamekit** sits on top of it and provides the actual game
+systems as a rich, hooked core — this is the layer a new game builds on. A
+plugin can be written directly against the sdk (as `core`/`auth`/`items` are,
+because they're infrastructure, not game mechanics) or against gamekit (as
+`idlekit`/`buildings`/`gamedemo` are, because they're game systems) — pick the
+lowest layer that has what you need.
+
+**Building your own game?** Start with [gamekit/README.md](../gamekit/README.md)
+and [GETTING_STARTED.md](GETTING_STARTED.md), not this document — this one is
+about the sdk substrate gamekit itself is built on. `backend/plugins/gamedemo`
+is the worked example exercising every gamekit toolkit; `backend/cmd/server` is
+this repo's own RPG, also built on gamekit (see
+[MIGRATION_TEMPLATE.md](MIGRATION_TEMPLATE.md) for how its subsystems moved
+onto gamekit's toolkits over time).
 
 ## The kernel and the plugin lifecycle
 
@@ -96,10 +107,13 @@ kernel enforces it uniformly so no plugin has to check its own state:
 
 A game-agnostic engine for "what happened while away". A `Producer` turns
 `elapsedMinutes + State` into an opaque `Output` (a numeric ledger + drops); the
-game maps that onto its systems. The RPG uses producers for combat stages,
-gathering lifeskills, and RTS resource generators; the city game uses one for
-its buildings. Both offline (on login) and online (a periodic tick) accrual run
-through the same `Producer` + `Window` primitives.
+game maps that onto its systems. `gamekit/idle` is the integration layer built
+on this — an Engine + Assignment component + TickSystem that routes a
+Producer's Output into gamekit's economy/progression/inventory toolkits (see
+`gamekit/README.md`). This repo's RPG uses it for training/gathering activities
+and a `buildings` content plugin (combat stages and gathering lifeskills, as
+developer-supplied Producers). Both offline (on login) and online (a periodic
+tick) accrual run through the same `Producer` + `Window` primitives.
 
 ## Request & event flow (RPG example)
 
