@@ -38,7 +38,7 @@ func (*Plugin) AdminInfo() admin.Info {
 }
 
 func (*Plugin) Meta() plugin.Meta {
-	return plugin.Meta{Name: "crafting", Requires: []string{"core", "character", "inventory", "idle"}}
+	return plugin.Meta{Name: "crafting", Requires: []string{"core", "character", "inventory", "idlekit"}}
 }
 
 func (p *Plugin) Init(ic plugin.InitContext) error {
@@ -46,7 +46,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	db := registry.MustResolve[*database.DB](reg, "db")
 	p.chars = registry.MustResolve[character.CharacterService](reg, "character")
 	inv := registry.MustResolve[inventory.InventoryService](reg, "inventory")
-	wallet := registry.MustResolve[Wallet](reg, "resourceWallet") // provided by the idle plugin
+	wallet := registry.MustResolve[Wallet](reg, "resourceWallet") // provided by the idlekit plugin
 
 	svc, err := NewService(ic.Context(), db.Store, reg, wallet, p.chars, inv, recipesJSON)
 	if err != nil {

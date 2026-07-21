@@ -48,6 +48,7 @@ hooks on top.
 | `economy` | Wallets of named currencies with affordability-checked earn/spend. | `HookEarn`, `HookSpend` |
 | `relation` | Typed directed edges between entities (contains, member-of, equips…), queryable both ways. | — |
 | `system` | `TickSystem` (interval + offline catch-up) and `EventSystem`, driven by a `Scheduler`. | — |
+| `idle` | Idle-accrual base: an Assignment component + Engine + ready TickSystem that drives developer-supplied Activities (`engine/idle.Producer`) and routes their Output into economy/progression/inventory. Buildings/lifeskills/stages are plugins, not core. | `HookOutput` |
 | `template` | Data-driven spawning: a JSON template says which components a `Kind` has and their defaults. | — |
 | `kit` | Batteries-included assembly of all of the above + standard schema. | — |
 

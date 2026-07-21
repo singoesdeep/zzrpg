@@ -1,33 +1,39 @@
-// Package idlekit is the PILOT port of the idle subsystem onto the gamekit
-// framework (see docs/MIGRATION_TEMPLATE.md). It proves the migration pattern on
-// the real server without touching the live game: it listens to the real
-// character login event, mirrors the character as a gamekit entity, and runs a
-// genuine gamekit TickSystem + Scheduler + economy wallet to accrue idle gold —
-// offline (catch-up on login) and online (ticks). It credits a SEPARATE gamekit
-// wallet (never the live character), so it runs safely alongside the existing
-// idle plugin for behaviour comparison.
+// Package idlekit is the idle subsystem rebuilt on the gamekit idle framework
+// (gamekit/idle). It replaces the legacy idle plugin: it owns the idle accrual
+// for real characters end to end — offline catch-up on login and online ticks —
+// by mirroring each character as a gamekit entity, driving the gamekit idle
+// Engine over developer-supplied Activities, and reflecting the results onto the
+// live game (gold/exp to the character, resources to a wallet crafting spends).
+//
+// It ships two example activities and exposes the activity registry, so richer
+// content (more stages, lifeskills, buildings) is added by OTHER plugins
+// registering their own engine/idle.Producer — not by touching this package.
 package idlekit
 
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
+	eidle "github.com/singoesdeep/zzrpg/sdk/engine/idle"
+
 	"github.com/singoesdeep/zzrpg/gamekit/component"
 	"github.com/singoesdeep/zzrpg/gamekit/economy"
+	gidle "github.com/singoesdeep/zzrpg/gamekit/idle"
 	"github.com/singoesdeep/zzrpg/gamekit/kit"
 	"github.com/singoesdeep/zzrpg/gamekit/progression"
-	"github.com/singoesdeep/zzrpg/gamekit/world"
 
 	"github.com/singoesdeep/zzrpg/sdk/engine/bus"
 	"github.com/singoesdeep/zzrpg/sdk/engine/plugin"
 	"github.com/singoesdeep/zzrpg/sdk/engine/registry"
 	"github.com/singoesdeep/zzrpg/sdk/pkg/httpx"
 
+	"github.com/singoesdeep/zzrpg/backend/game/auth"
 	"github.com/singoesdeep/zzrpg/backend/game/character"
 	"github.com/singoesdeep/zzrpg/backend/platform/database"
 )
@@ -35,49 +41,17 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// entityKind marks the gamekit entity that mirrors a character for idlekit.
-const entityKind = "idlekit"
-
-// Producer is idlekit's component: how fast a mirrored character accrues,
-// derived from the live character's power and level (the read-bridge).
-type Producer struct {
-	RatePerMin float64 `json:"rate_per_min"`
-	Resource   string  `json:"resource"`
-}
-
-// idleSystem is the gamekit TickSystem: it accrues each producer's resource over
-// elapsed time into the economy wallet — the same shape gamedemo proved, now
-// driven by real character data.
-type idleSystem struct {
-	prod     component.Store[Producer]
-	econ     *economy.Service
-	interval time.Duration
-}
-
-func (idleSystem) Name() string              { return "idlekit" }
-func (s idleSystem) Interval() time.Duration { return s.interval }
-func (idleSystem) Query() []string           { return []string{"idlekit_producer"} }
-
-func (s idleSystem) Tick(ctx context.Context, id int64, _ *world.World, elapsed time.Duration) error {
-	p, ok, err := s.prod.Get(ctx, id)
-	if err != nil || !ok {
-		return err
-	}
-	gain := int64(p.RatePerMin * elapsed.Minutes())
-	if gain <= 0 {
-		return nil
-	}
-	_, err = s.econ.Earn(ctx, id, p.Resource, gain)
-	return err
-}
+const entityKind = "idlekit" // gamekit entity mirroring a character
 
 type Plugin struct {
 	plugin.Base
 	chars  character.CharacterService
 	kit    *kit.Kit
-	prod   component.Store[Producer]
-	sys    idleSystem
-	entkey sync.Mutex // guards mirror-entity create-or-get
+	engine *gidle.Engine
+	sys    gidle.System
+	assign component.Store[gidle.Assignment]
+	wallet component.Store[economy.Wallet]
+	entkey sync.Mutex
 }
 
 func (*Plugin) Meta() plugin.Meta {
@@ -93,66 +67,109 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 	p.chars = registry.MustResolve[character.CharacterService](reg, "character")
 	db := registry.MustResolve[*database.DB](reg, "db")
 
-	// Assemble the gamekit core (stats/progression are unused here; the pilot
-	// exercises entity + economy + system).
 	p.kit = kit.New(kit.Deps{
 		Store: db.Store, Hooks: ic.Hooks(), Bus: ic.Bus(),
 		Curve: progression.Curve{Base: 50, Exp: 2},
 	})
-	p.prod = component.NewJSONStore[Producer](db.Store, "idlekit_producer", "idlekit_producer")
-	p.kit.World.Register(p.prod)
+	p.assign = component.NewJSONStore[gidle.Assignment](db.Store, gidle.AssignmentComponent, "idlekit_assignment")
+	p.wallet = p.kit.WalletStore
+	p.kit.World.Register(p.assign)
+
+	// The shared activity registry: seeded with the example activities, exposed
+	// so other plugins can register more (buildings, lifeskills, …).
+	activities := eidle.NewRegistry()
+	activities.Register("training", training{})
+	activities.Register("gathering", gathering{})
+	if err := registry.Provide(reg, "idleActivities", activities); err != nil {
+		return err
+	}
+
+	p.engine = gidle.NewEngine(gidle.Deps{
+		Registry: activities,
+		Assign:   p.assign,
+		StateFor: p.stateFor, // read-bridge: live character stats → activity inputs
+		Apply:    p.apply,    // write-bridge: output → character + resource wallet
+		Hooks:    ic.Hooks(),
+	})
 
 	interval := ic.Config().IdleTickInterval
 	if interval <= 0 {
 		interval = 15 * time.Second
 	}
-	p.sys = idleSystem{prod: p.prod, econ: p.kit.Economy, interval: interval}
+	// minSeconds gates tiny windows; capSeconds bounds an offline session (24h).
+	p.sys = gidle.NewSystem(p.engine, interval, 1, 24*3600)
 	p.kit.Scheduler.AddTick(p.sys)
 
-	ic.Mux().HandleFunc("GET /api/v1/idlekit/state/{charID}", p.state)
+	// Resource wallet crafting spends from (satisfied structurally; keyed by
+	// character id, debit-capable — unlike the clamped economy.Earn).
+	if err := registry.Provide(reg, "resourceWallet", resourceWallet{p: p}); err != nil {
+		return err
+	}
+
+	jwt := ic.Config().JWTSecret
+	mux := ic.Mux()
+	mux.Handle("GET /api/v1/characters/{id}/idle/state", auth.AuthMiddleware(jwt)(http.HandlerFunc(p.state)))
+	mux.Handle("GET /api/v1/characters/{id}/idle/activities", auth.AuthMiddleware(jwt)(http.HandlerFunc(p.activities)))
+	mux.Handle("POST /api/v1/characters/{id}/idle/assign", auth.AuthMiddleware(jwt)(http.HandlerFunc(p.assignHandler)))
 	return nil
 }
 
 func (p *Plugin) Start(rc plugin.RunContext) error {
-	p.kit.Scheduler.Run(rc.Context()) // online ticks across all mirrored entities
+	p.kit.Scheduler.Run(rc.Context()) // online ticks across all assigned entities
 
-	// On login: mirror the character, refresh its producer rate from live stats,
-	// then settle offline gains via the gamekit catch-up.
+	// On login: mirror the character and settle offline gains via catch-up.
 	rc.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx context.Context, ev bus.Event) {
 		e, ok := ev.(character.CharacterLoggedIn)
 		if !ok {
 			return
 		}
-		eid, err := p.mirror(ctx, e.CharacterID)
-		if err != nil {
-			return
+		if eid, err := p.mirror(ctx, e.CharacterID); err == nil {
+			p.kit.Scheduler.Catchup(ctx, p.sys, eid)
 		}
-		p.kit.Scheduler.Catchup(ctx, p.sys, eid)
 	})
 	return nil
 }
 
-// mirror is the bridge: it maps a character to its gamekit entity (creating it
-// once), then sets the producer rate from the character's live power and level.
-func (p *Plugin) mirror(ctx context.Context, charID int64) (int64, error) {
-	eid, err := p.ensureEntity(ctx, charID)
+// stateFor is the read-bridge: an entity's activity inputs come from its live
+// character (power = sum of derived stats, plus level).
+func (p *Plugin) stateFor(ctx context.Context, entityID int64) (eidle.State, error) {
+	charID, err := p.charOf(ctx, entityID)
 	if err != nil {
-		return 0, err
+		return eidle.State{}, err
 	}
 	char, err := p.chars.GetByID(ctx, charID)
 	if err != nil {
-		return 0, err
+		return eidle.State{}, err
 	}
-	rate := power(char.Stats.DerivedStats)*0.1 + float64(char.Level)
-	if err := p.prod.Set(ctx, eid, Producer{RatePerMin: rate, Resource: "gold"}); err != nil {
-		return 0, err
-	}
-	return eid, nil
+	return eidle.State{Vars: map[string]float64{"power": power(char.Stats.DerivedStats), "level": float64(char.Level)}}, nil
 }
 
-// ensureEntity returns the gamekit entity mirroring a character, creating it on
-// first sight. Serialised so two concurrent logins don't double-create.
-func (p *Plugin) ensureEntity(ctx context.Context, charID int64) (int64, error) {
+// apply is the write-bridge: gold/exp are credited to the real character; every
+// other amount is a resource banked in the gamekit wallet (spent by crafting).
+func (p *Plugin) apply(ctx context.Context, entityID int64, out eidle.Output) error {
+	charID, err := p.charOf(ctx, entityID)
+	if err != nil {
+		return err
+	}
+	gold, exp := out.Amounts["gold"], out.Amounts["exp"]
+	if gold > 0 || exp > 0 {
+		if _, _, err := p.chars.AddRewards(ctx, charID, gold, exp); err != nil {
+			return err
+		}
+	}
+	for name, amt := range out.Amounts {
+		if name == "gold" || name == "exp" || amt <= 0 {
+			continue
+		}
+		if _, err := p.kit.Economy.Earn(ctx, entityID, name, amt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mirror maps a character to its gamekit entity (create-once).
+func (p *Plugin) mirror(ctx context.Context, charID int64) (int64, error) {
 	p.entkey.Lock()
 	defer p.entkey.Unlock()
 	owned, err := p.kit.Entities.ListByOwner(ctx, charID)
@@ -171,40 +188,93 @@ func (p *Plugin) ensureEntity(ctx context.Context, charID int64) (int64, error) 
 	return e.ID, nil
 }
 
-// entityFor looks up a character's mirror entity without creating one.
-func (p *Plugin) entityFor(ctx context.Context, charID int64) (int64, bool, error) {
-	owned, err := p.kit.Entities.ListByOwner(ctx, charID)
+// charOf reverse-maps a mirror entity to its character (stored as OwnerID).
+func (p *Plugin) charOf(ctx context.Context, entityID int64) (int64, error) {
+	e, err := p.kit.Entities.Get(ctx, entityID)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
-	for _, e := range owned {
-		if e.Kind == entityKind {
-			return e.ID, true, nil
-		}
-	}
-	return 0, false, nil
+	return e.OwnerID, nil
 }
 
-// state reports the gamekit-accrued wallet for a character's mirror entity.
+// --- HTTP (legacy idle contract preserved) ---
+
 func (p *Plugin) state(w http.ResponseWriter, r *http.Request) {
-	charID, _ := strconv.ParseInt(r.PathValue("charID"), 10, 64)
-	eid, ok, err := p.entityFor(r.Context(), charID)
+	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	eid, err := p.mirror(r.Context(), charID)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "IDLEKIT", err.Error())
+		httpx.WriteError(w, http.StatusInternalServerError, "IDLE", err.Error())
 		return
 	}
-	if !ok {
-		httpx.WriteJSON(w, http.StatusOK, map[string]any{"character_id": charID, "mirrored": false})
-		return
-	}
-	wallet, _ := p.kit.Economy.Get(r.Context(), eid)
+	cur, _, _ := p.engine.Current(r.Context(), eid)
+	wallet, _, _ := p.wallet.Get(r.Context(), eid)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"character_id": charID, "mirrored": true, "entity_id": eid, "wallet": wallet,
+		"character_id": charID, "activity": cur, "resources": wallet.Balances,
 	})
 }
 
-// power is the read-bridge's rate input: the sum of a character's derived stats
-// (the old idle used a weighted sum; the pilot uses weight 1 for every stat).
+func (p *Plugin) activities(w http.ResponseWriter, r *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"activities": p.engine.Activities()})
+}
+
+func (p *Plugin) assignHandler(w http.ResponseWriter, r *http.Request) {
+	charID, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	var body struct {
+		ActivityID string `json:"activity_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "IDLE", "invalid body")
+		return
+	}
+	eid, err := p.mirror(r.Context(), charID)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "IDLE", err.Error())
+		return
+	}
+	if err := p.engine.Assign(r.Context(), eid, body.ActivityID); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "IDLE", err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"character_id": charID, "activity": body.ActivityID})
+}
+
+// resourceWallet adapts the gamekit wallet to crafting's Wallet interface,
+// keyed by character id and debit-capable (crafting Credits negative amounts to
+// spend). It reads/writes the same wallet idle banks resources into.
+type resourceWallet struct{ p *Plugin }
+
+func (rw resourceWallet) Balances(ctx context.Context, charID int64) (map[string]int64, error) {
+	eid, err := rw.p.mirror(ctx, charID)
+	if err != nil {
+		return nil, err
+	}
+	w, _, err := rw.p.wallet.Get(ctx, eid)
+	if err != nil {
+		return nil, err
+	}
+	return w.Balances, nil
+}
+
+func (rw resourceWallet) Credit(ctx context.Context, charID int64, resourceID string, amount int64) error {
+	eid, err := rw.p.mirror(ctx, charID)
+	if err != nil {
+		return err
+	}
+	w, _, err := rw.p.wallet.Get(ctx, eid)
+	if err != nil {
+		return err
+	}
+	if w.Balances == nil {
+		w.Balances = map[string]int64{}
+	}
+	w.Balances[resourceID] += amount // amount may be negative (a spend)
+	if w.Balances[resourceID] < 0 {
+		w.Balances[resourceID] = 0
+	}
+	return rw.p.wallet.Set(ctx, eid, w)
+}
+
+// power is the read-bridge's rate input: the sum of a character's derived stats.
 func power(derived map[string]float64) float64 {
 	var total float64
 	for _, v := range derived {

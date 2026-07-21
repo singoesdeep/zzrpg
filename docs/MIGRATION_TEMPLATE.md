@@ -74,9 +74,26 @@ one before committing to the swap.
 7. Only once parity holds: enable the write bridge, move the routes over, and
    retire the legacy plugin.
 
+## Framework, not catalog
+
+The idle swap surfaced the key principle for the whole port: **gamekit provides
+the mechanism + integration; developers provide the content as plugins.** The
+legacy `game/idle` baked stages, lifeskills, and buildings into the core. The
+gamekit `idle` toolkit instead ships the accrual Engine, the Assignment
+component, the TickSystem, hooks, and the Output router — and takes the concrete
+activities as `engine/idle.Producer` implementations registered on a shared
+registry (exposed via `registry.Provide("idleActivities", …)`). A buildings
+plugin, a lifeskills plugin, etc. each register their own producers without
+touching idlekit. Port a subsystem by extracting its *framework* into gamekit and
+leaving its *content* as plugins.
+
 ## Status
 
-- **idlekit**: pilot done — core offline/online accrual on gamekit, live in
-  `cmd/server`, unit-tested (`plugin_test.go`), read bridge on, write bridge off.
-- **Next**: loot, quests, crafting, combat — same recipe; enable write bridges and
-  retire legacy plugins subsystem by subsystem.
+- **idle → idlekit: SWAPPED.** Legacy `plugins/idle` and `game/idle` deleted;
+  `idlekit` rebuilt on the new `gamekit/idle` framework owns idle end to end in
+  `cmd/server` — write bridge on (gold/exp → `character.AddRewards`, resources →
+  a wallet `crafting` spends), same `/characters/{id}/idle/*` endpoint contract
+  (buildings/upgrade dropped: buildings become a plugin). Boot-verified: crafting
+  resolves idlekit's `resourceWallet`; suites green.
+- **Next**: loot, quests, combat — same recipe (framework → gamekit toolkit,
+  content → plugins), enable write bridge, retire the legacy plugin.
