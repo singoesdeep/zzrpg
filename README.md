@@ -94,5 +94,6 @@ backend/                     this repo's RPG (own Go module, requires ../sdk and
   plugins/    composition adapters: core · stat · auth · character · combat ·
               idlekit · buildings · crafting · gamedemo · …
   content/    data-driven content (JSON)
+  examples/   standalone, unregistered example plugins (sdk-level hooks/events on this RPG — see their README)
   cmd/        server (this RPG) · gamedemo (the gamekit reference example)
 ```

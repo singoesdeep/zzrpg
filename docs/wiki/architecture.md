@@ -1,4 +1,4 @@
-<!-- sha: a3f8b3e8d9c3cff7aba9256eda5f5c991eda1007 -->
+<!-- sha: a21dc6354edb2813d59c97771f34179327ffe190 -->
 # 🏛️ Engine Core & Kernel
 
 The engine is a game-agnostic Go module (`sdk/`) with zero RPG concepts. Games

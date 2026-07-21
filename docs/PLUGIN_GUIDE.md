@@ -118,6 +118,14 @@ outbox for exactly-once delivery when done inside a repository transaction.
 ic.Bus().Subscribe(character.EventCharacterLoggedIn, func(ctx, ev) { /* … */ })
 ```
 
+## Worked examples of a third-party plugin
+
+`backend/examples/plugins/{xpboost,achievements}` are standalone,
+unregistered example plugins extending *this repo's specific RPG* through
+hooks/events/routes (not gamekit) — a hook filter + veto + event subscription
+in one (`xpboost`), and a purely event-driven stateful plugin (`achievements`).
+See [their README](../backend/examples/plugins/README.md).
+
 ## What you did *not* touch
 
 Building `gamedemo` required **no changes** to `sdk/` (engine) or `gamekit/`
