@@ -9,7 +9,10 @@
 package admin
 
 import (
+	"crypto/subtle"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sync"
 )
 
@@ -108,4 +111,31 @@ func (sm *StateManager) Toggle(name string) (string, error) {
 		s.Status = StatusActive
 	}
 	return s.Status, nil
+}
+
+// BypassKeyHeader is the header the Admin Dashboard sends its operator secret
+// in, checked against the ADMIN_BYPASS_KEY the process was booted with.
+const BypassKeyHeader = "X-Admin-Bypass-Key"
+
+// RequireBypassKey wraps a handler so it only runs when the request's
+// BypassKeyHeader matches key, compared in constant time. An empty key means
+// no key was configured at boot, so the dashboard's data endpoints are
+// disabled outright (503) rather than left open — there is no way to "turn
+// off" this check short of configuring a key.
+func RequireBypassKey(key string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if key == "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "admin dashboard disabled: ADMIN_BYPASS_KEY not configured"})
+			return
+		}
+		got := r.Header.Get(BypassKeyHeader)
+		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(key)) != 1 {
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid or missing " + BypassKeyHeader})
+			return
+		}
+		next(w, r)
+	}
 }

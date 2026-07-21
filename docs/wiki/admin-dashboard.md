@@ -1,4 +1,4 @@
-<!-- sha: 1ec913a58ecaea4aad8d0f10d528442c4922f119 -->
+<!-- sha: a3f8b3e8d9c3cff7aba9256eda5f5c991eda1007 -->
 # 🎛️ Admin Dashboard & APIs
 
 The `core` plugin serves a single-page Admin Dashboard at `GET /admin`
@@ -7,9 +7,25 @@ The `core` plugin serves a single-page Admin Dashboard at `GET /admin`
 ## Endpoints
 - `GET /health`, `GET /readyz` — liveness / readiness (DB + Redis).
 - `GET /metrics` — Prometheus.
-- `GET /admin`, `GET /docs` — dashboard & OpenAPI UI.
-- `GET /api/v1/admin/plugins` — list plugins + status.
+- `GET /admin`, `GET /docs` — dashboard shell & OpenAPI UI (unauthenticated —
+  no sensitive data, just the static page).
+- `GET /api/v1/admin/plugins` — list plugins + status. **Requires the
+  `X-Admin-Bypass-Key` header.**
 - `POST /api/v1/admin/plugins/{name}/toggle` — activate/deactivate a plugin.
+  **Requires the header.**
+- `GET /api/v1/admin/health` — DB/Redis status for the dashboard's header
+  strip. **Requires the header.**
+
+## Auth: `ADMIN_BYPASS_KEY`
+The dashboard's data endpoints (not the static HTML shell) are gated by a
+single operator secret, `ADMIN_BYPASS_KEY`, read from the environment at boot
+(`sdk/pkg/config`). It is a deploy-time credential, not a per-user login — the
+dashboard prompts for it once and sends it as `X-Admin-Bypass-Key` on every
+call (`admin.RequireBypassKey`, `sdk/engine/admin/admin.go`, constant-time
+compared). Unset in production is allowed (dashboard data endpoints stay
+disabled, 503); if set, production requires ≥20 characters. Development falls
+back to a fixed insecure default so the dashboard works locally with zero
+config.
 
 ## Runtime activation
 `admin.StateManager` (`sdk/engine/admin/admin.go`) is the single source of truth

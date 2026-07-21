@@ -67,7 +67,7 @@ func (p *Plugin) AdminInfo() admin.Info {
 		Description: "Engine substrate providing DB pool, Redis cache, WebSockets, outbox relay & event streams",
 		Icon:        "fa-server",
 		Category:    "Infrastructure",
-		Endpoints:   []string{"GET /health", "GET /readyz", "GET /metrics", "GET /docs", "GET /admin", "GET /api/v1/admin/plugins", "WS /ws"},
+		Endpoints:   []string{"GET /health", "GET /readyz", "GET /metrics", "GET /docs", "GET /admin", "GET /api/v1/admin/plugins", "POST /api/v1/admin/plugins/{name}/toggle", "GET /api/v1/admin/health", "WS /ws"},
 	}
 }
 
@@ -146,7 +146,7 @@ func (p *Plugin) Init(ic plugin.InitContext) error {
 		return err
 	}
 
-	p.registerHTTPEndpoints(mux, reg, log)
+	p.registerHTTPEndpoints(mux, reg, log, cfg.AdminBypassKey)
 	p.registerWebSocket(ctx, mux, reg, cfg.AllowOrigin)
 
 	return nil
@@ -190,7 +190,7 @@ func (p *Plugin) setupEventStream(ic plugin.InitContext, decoders *outbox.Regist
 	}
 }
 
-func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry, log *slog.Logger) {
+func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry, log *slog.Logger, bypassKey string) {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -260,8 +260,7 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 		_, _ = w.Write(data)
 	})
 
-	mux.HandleFunc("GET /api/v1/admin/plugins", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	mux.HandleFunc("GET /api/v1/admin/plugins", admin.RequireBypassKey(bypassKey, func(w http.ResponseWriter, r *http.Request) {
 		mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -272,10 +271,9 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 			"success": true,
 			"plugins": mgr.List(),
 		})
-	})
+	}))
 
-	mux.HandleFunc("POST /api/v1/admin/plugins/{name}/toggle", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	mux.HandleFunc("POST /api/v1/admin/plugins/{name}/toggle", admin.RequireBypassKey(bypassKey, func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		mgr, err := registry.Resolve[*admin.StateManager](reg, "pluginManager")
 		if err != nil {
@@ -294,7 +292,17 @@ func (p *Plugin) registerHTTPEndpoints(mux plugin.Router, reg *registry.Registry
 			"name":    name,
 			"status":  newStatus,
 		})
-	})
+	}))
+
+	mux.HandleFunc("GET /api/v1/admin/health", admin.RequireBypassKey(bypassKey, func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		dbReady := p.db.Pool.Ping(ctx) == nil
+		redisReady := p.cache.Ping(ctx) == nil
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true, "database": readyStr(dbReady), "redis": readyStr(redisReady), "node": nodeID(),
+		})
+	}))
 }
 
 func (p *Plugin) registerWebSocket(ctx context.Context, mux plugin.Router, reg *registry.Registry, allowOrigin func(origin string) bool) {

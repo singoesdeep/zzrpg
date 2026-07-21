@@ -1,4 +1,4 @@
-<!-- sha: 1ec913a58ecaea4aad8d0f10d528442c4922f119 -->
+<!-- sha: a3f8b3e8d9c3cff7aba9256eda5f5c991eda1007 -->
 # 🧩 Plugin Subsystem
 
 Every feature is a plugin implementing `plugin.Plugin`

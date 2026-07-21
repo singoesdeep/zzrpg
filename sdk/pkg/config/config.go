@@ -19,6 +19,12 @@ type Config struct {
 	JWTSecret     string
 	Env           string
 
+	// AdminBypassKey gates the Admin Dashboard (GET /admin's data endpoints,
+	// not the full user/JWT role system) behind a single operator secret read
+	// from ADMIN_BYPASS_KEY at boot — a deploy-time credential, not a per-user
+	// login. Empty means the dashboard's data endpoints refuse all requests.
+	AdminBypassKey string
+
 	// AllowedOrigins is the browser Origin allowlist for CORS and WebSocket
 	// upgrades, parsed from ALLOWED_ORIGINS (comma-separated). A single "*"
 	// entry allows any origin. Empty means: allow all in development, deny
@@ -55,6 +61,7 @@ func LoadConfig() (*Config, error) {
 		ZzstatGRPCURL:  getEnv("ZZSTAT_GRPC_URL", "localhost:50051"),
 		JWTSecret:      getEnv("JWT_SECRET", ""),
 		Env:            getEnv("ENV", "development"),
+		AdminBypassKey: getEnv("ADMIN_BYPASS_KEY", ""),
 		AllowedOrigins: parseCSV(getEnv("ALLOWED_ORIGINS", "")),
 
 		RateLimitRPS:     getEnvFloat("RATE_LIMIT_RPS", 20),
@@ -80,8 +87,16 @@ func LoadConfig() (*Config, error) {
 		if v, ok := os.LookupEnv("DATABASE_URL"); !ok || v == "" {
 			return nil, errors.New("DATABASE_URL must be explicitly set when ENV=production")
 		}
-	} else if cfg.JWTSecret == "" {
-		cfg.JWTSecret = "dev_only_insecure_secret_do_not_use_in_prod"
+		if cfg.AdminBypassKey != "" && len(cfg.AdminBypassKey) < 20 {
+			return nil, fmt.Errorf("ADMIN_BYPASS_KEY must be at least 20 characters in production (got %d)", len(cfg.AdminBypassKey))
+		}
+	} else {
+		if cfg.JWTSecret == "" {
+			cfg.JWTSecret = "dev_only_insecure_secret_do_not_use_in_prod"
+		}
+		if cfg.AdminBypassKey == "" {
+			cfg.AdminBypassKey = "dev_only_insecure_admin_bypass_do_not_use_in_prod"
+		}
 	}
 
 	return cfg, nil
