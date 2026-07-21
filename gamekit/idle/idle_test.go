@@ -91,6 +91,63 @@ func TestSystemBelowWindowIsNoOp(t *testing.T) {
 	}
 }
 
+// sawmillActivity is a plugin-registered building activity: it produces wood
+// scaled by a "sawmill_level" input the engine itself has no concept of — that
+// input is injected by a HookState filter, proving a third-party plugin can
+// extend accrual inputs without touching the engine or idlekit.
+type sawmillActivity struct{}
+
+func (sawmillActivity) Unlocked(s eidle.State) bool { return s.Get("sawmill_level") > 0 }
+func (sawmillActivity) Produce(min float64, s eidle.State, _ func() float64) eidle.Output {
+	var o eidle.Output
+	o.Add("wood", int64(s.Get("sawmill_level")*2*min))
+	return o
+}
+
+func TestHookStateLetsAPluginInjectItsOwnInput(t *testing.T) {
+	ctx := context.Background()
+	h := hooks.New(nil)
+
+	reg := eidle.NewRegistry()
+	reg.Register("sawmill", sawmillActivity{})
+
+	econ := economy.NewService(component.NewMemStore[economy.Wallet]("wallet"), nil)
+	eng := NewEngine(Deps{
+		Registry: reg,
+		Assign:   component.NewMemStore[Assignment](AssignmentComponent),
+		Apply:    DefaultApplier(econ, nil, nil, "exp"),
+		Hooks:    h,
+	})
+
+	// The "buildings" plugin: its own component, its own filter, registered
+	// independently of the engine.
+	buildingLevels := map[int64]float64{42: 3}
+	hooks.AddFilter(h, HookState, 10, func(_ context.Context, se StateEvent) StateEvent {
+		if se.State.Vars == nil {
+			se.State.Vars = map[string]float64{}
+		}
+		se.State.Vars["sawmill_level"] = buildingLevels[se.EntityID]
+		return se
+	})
+
+	if err := eng.Assign(ctx, 42, "sawmill"); err != nil {
+		t.Fatalf("assign: %v", err)
+	}
+	if _, ran, err := eng.Accrue(ctx, 42, 10); err != nil || !ran {
+		t.Fatalf("accrue ran=%v err=%v", ran, err)
+	}
+	// wood = level 3 * 2 * 10min = 60.
+	if bal, _ := econ.Balance(ctx, 42, "wood"); bal != 60 {
+		t.Fatalf("wood = %d, want 60", bal)
+	}
+
+	// A different entity with no building level: Unlocked is false, no-op.
+	_ = eng.Assign(ctx, 7, "sawmill")
+	if _, ran, err := eng.Accrue(ctx, 7, 10); err != nil || ran {
+		t.Fatalf("unbuilt entity accrue ran=%v err=%v", ran, err)
+	}
+}
+
 func TestUnassignedAndUnknownActivity(t *testing.T) {
 	ctx := context.Background()
 	eng, _, _, _ := newFixture(nil)

@@ -12,6 +12,7 @@ import (
 	"github.com/singoesdeep/zzrpg/sdk/pkg/logger"
 
 	"github.com/singoesdeep/zzrpg/backend/plugins/auth"
+	"github.com/singoesdeep/zzrpg/backend/plugins/buildings"
 	"github.com/singoesdeep/zzrpg/backend/plugins/character"
 	"github.com/singoesdeep/zzrpg/backend/plugins/combat"
 	"github.com/singoesdeep/zzrpg/backend/plugins/core"
@@ -45,7 +46,8 @@ func main() {
 		&loot.Plugin{},
 		&quests.Plugin{},
 		&combat.Plugin{},
-		&idlekit.Plugin{}, // idle rebuilt on the gamekit idle framework (replaces legacy idle)
+		&idlekit.Plugin{},   // idle rebuilt on the gamekit idle framework (replaces legacy idle)
+		&buildings.Plugin{}, // CONTENT plugin: adds building activities via idlekit's extension seams
 		&crafting.Plugin{},
 	)
 

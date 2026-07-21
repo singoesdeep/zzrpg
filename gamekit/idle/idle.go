@@ -34,6 +34,20 @@ const AssignmentComponent = "idle_assignment"
 // without the activity or the engine knowing about it.
 const HookOutput = "idle.output"
 
+// HookState is a Filter over the State built for an entity before its activity
+// runs — the seam a plugin uses to inject its OWN inputs (a building level, a
+// skill level, an equipped tool's bonus) that the engine has no concept of. A
+// buildings plugin, say, reads its own component for StateEvent.EntityID and
+// sets State.Vars["sawmill_level"] so a "sawmill" Producer it registers can read
+// it — without idlekit or the engine changing.
+const HookState = "idle.state"
+
+// StateEvent is the HookState payload: which entity, and the State so far.
+type StateEvent struct {
+	EntityID int64
+	State    eidle.State
+}
+
 // Assignment is the component: which registered activity an entity is running.
 type Assignment struct {
 	ActivityID string `json:"activity_id"`
@@ -105,9 +119,9 @@ func (e *Engine) Current(ctx context.Context, entityID int64) (string, bool, err
 }
 
 // Accrue runs the entity's assigned activity over elapsedMin minutes: it builds
-// the state, produces the output (unless the activity is locked), filters it
-// through HookOutput, and applies it. Returns the applied output and whether
-// anything ran.
+// the state (filtered through HookState, so plugins can add their own inputs),
+// produces the output (unless the activity is locked), filters it through
+// HookOutput, and applies it. Returns the applied output and whether anything ran.
 func (e *Engine) Accrue(ctx context.Context, entityID int64, elapsedMin float64) (eidle.Output, bool, error) {
 	id, ok, err := e.Current(ctx, entityID)
 	if err != nil || !ok {
@@ -120,6 +134,9 @@ func (e *Engine) Accrue(ctx context.Context, entityID int64, elapsedMin float64)
 	st, err := e.stateFor(ctx, entityID)
 	if err != nil {
 		return eidle.Output{}, false, err
+	}
+	if e.hooks != nil {
+		st = hooks.ApplyFilters(e.hooks, ctx, HookState, StateEvent{EntityID: entityID, State: st}).State
 	}
 	if !p.Unlocked(st) {
 		return eidle.Output{}, false, nil

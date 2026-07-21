@@ -41,7 +41,12 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-const entityKind = "idlekit" // gamekit entity mirroring a character
+// EntityKind is the gamekit entity Kind that mirrors a character, OwnerID set to
+// the character id. Other plugins that extend idle content (buildings,
+// lifeskills, …) look a character's entity up the same way idlekit does —
+// entity.Repo.ListByOwner(charID) filtered by this Kind — rather than idlekit
+// exposing a bespoke lookup per extension.
+const EntityKind = "idlekit"
 
 type Plugin struct {
 	plugin.Base
@@ -177,11 +182,11 @@ func (p *Plugin) mirror(ctx context.Context, charID int64) (int64, error) {
 		return 0, err
 	}
 	for _, e := range owned {
-		if e.Kind == entityKind {
+		if e.Kind == EntityKind {
 			return e.ID, nil
 		}
 	}
-	e, err := p.kit.Entities.Create(ctx, entityKind, charID)
+	e, err := p.kit.Entities.Create(ctx, EntityKind, charID)
 	if err != nil {
 		return 0, err
 	}
