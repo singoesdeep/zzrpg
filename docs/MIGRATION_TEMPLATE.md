@@ -155,3 +155,33 @@ rebuild) when consumers are few and the legacy shape itself is the problem.
   a real seam (here, a self-contained concurrency primitive) rather than
   forcing a full-package extraction where the "framework" isn't actually
   separable from a specific integration (here, zzstat).
+
+## Remaining subsystems: surveyed, most don't need porting
+
+- **character → gamekit/progression: SWAPPED (zero new code).** `character`'s
+  leveling curve (`level² × 100` xp) turned out to be an exact instance of
+  `gamekit/progression`'s already-generic `Base × N^Exp` curve (`Curve{Base:
+  100, Exp: 2}`). `ExperienceForLevel`/`ApplyExperience` now delegate to
+  `gprogression.XPForLevel`/`Apply` — no new gamekit code, the toolkit already
+  covered it. `ApplyLevelUpStatGains` (which stats gain how much per level) is
+  an RPG design choice, not a mechanism, and stays in `character`. Existing
+  `leveling_test.go` passes unmodified.
+- **auth, items, inventory, crafting: NOT ported — correctly so.**
+  - `auth` is identity/session, not a game mechanic; out of scope for a *game*
+    framework.
+  - `items` is a pure content catalog (CRUD over item definitions) — there is
+    no mechanism to extract, it IS content.
+  - `inventory`'s equip logic (`validateEquipmentRequirements`) is fixed to
+    this RPG's exact slot taxonomy (`WeaponSlot`/`BodyArmorSlot`/…) and class-
+    name matching — genuinely RPG-specific business rules with no generic
+    counterpart (an RTS has no "equipment slots"). Its `keyedMutex` utility is
+    a generic concurrency primitive but too small to justify a gamekit package
+    on its own.
+  - `crafting` was already built cleanly on gamekit (reads idlekit's wallet,
+    uses the content registry); its cost-check is a few lines, not worth
+    extracting further.
+- **Takeaway**: the framework/content principle cuts both ways — port a
+  subsystem when gamekit already has (or should have) the general mechanism;
+  leave it alone when the "mechanism" turns out to just be this RPG's specific
+  rules. Forcing an extraction where there's no real duplication or reusable
+  seam adds risk and abstraction for no one.
