@@ -17,6 +17,7 @@ import (
 	"github.com/singoesdeep/zzrpg/backend/plugins/core"
 	"github.com/singoesdeep/zzrpg/backend/plugins/crafting"
 	"github.com/singoesdeep/zzrpg/backend/plugins/idle"
+	"github.com/singoesdeep/zzrpg/backend/plugins/idlekit"
 	"github.com/singoesdeep/zzrpg/backend/plugins/inventory"
 	"github.com/singoesdeep/zzrpg/backend/plugins/items"
 	"github.com/singoesdeep/zzrpg/backend/plugins/loot"
@@ -46,6 +47,7 @@ func main() {
 		&quests.Plugin{},
 		&combat.Plugin{},
 		&idle.Plugin{},
+		&idlekit.Plugin{}, // pilot: idle rebuilt on gamekit, runs alongside for comparison
 		&crafting.Plugin{},
 	)
 
